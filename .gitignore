@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# transformers.js model cache
+/.cache
+
+# Persisted session state (PDFs, extraction results) — survives process crashes
+/.sessions
+
