@@ -17,6 +17,11 @@ async function getPipeline(): Promise<Pipeline> {
       const { pipeline, env } = await import("@xenova/transformers");
       env.allowLocalModels = false;
       env.useBrowserCache = false;
+      // On Vercel/serverless, the package directory is read-only. The model
+      // download (~25 MB) needs to land in /tmp, the only writable path.
+      if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+        env.cacheDir = "/tmp/xenova-cache";
+      }
       return (await pipeline(
         "feature-extraction",
         ragConfig.embeddingModel,
