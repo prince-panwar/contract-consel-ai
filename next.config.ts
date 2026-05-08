@@ -1,11 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: [
-    "@xenova/transformers",
-    "onnxruntime-node",
-    "mongodb",
-  ],
+  serverExternalPackages: ["mongodb"],
 };
 
 export default nextConfig;

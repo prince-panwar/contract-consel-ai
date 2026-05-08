@@ -2,8 +2,10 @@ export const ragConfig = {
   // Gemini 2.5 Flash: 1M context, generous free-tier TPM/RPM, strong JSON mode.
   // Flash-lite is cheaper/faster if quality is acceptable.
   model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-  embeddingModel: "Xenova/all-MiniLM-L6-v2",
-  embeddingDim: 384,
+  // Gemini embedding API. Serverless-friendly (HTTP, no native deps).
+  // 768-dim is the recommended Matryoshka size for retrieval — good quality, fast dot products.
+  embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
+  embeddingDim: 768,
   chunkTargetChars: 2000,
   chunkOverlapChars: 320,
   topK: 6,
