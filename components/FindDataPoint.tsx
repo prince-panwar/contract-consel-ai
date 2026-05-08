@@ -4,11 +4,11 @@ import { useState } from "react";
 import type { DataPoint } from "@/lib/rag/types";
 
 interface Props {
-  sessionId: string;
+  reportId: string;
   onAccept: (dp: DataPoint) => void;
 }
 
-export function FindDataPoint({ sessionId, onAccept }: Props) {
+export function FindDataPoint({ reportId, onAccept }: Props) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [candidate, setCandidate] = useState<DataPoint | null>(null);
@@ -23,12 +23,9 @@ export function FindDataPoint({ sessionId, onAccept }: Props) {
     setCandidate(null);
     setNotFound(false);
     try {
-      const res = await fetch("/api/contract/datapoints/find", {
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/find`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-session-id": sessionId,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q }),
       });
       const payload = await res.json();
@@ -48,12 +45,9 @@ export function FindDataPoint({ sessionId, onAccept }: Props) {
   const accept = async () => {
     if (!candidate) return;
     try {
-      const res = await fetch("/api/contract/datapoints", {
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/datapoints`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-session-id": sessionId,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           field: candidate.field,
           value: candidate.value,

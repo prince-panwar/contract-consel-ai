@@ -1,4 +1,9 @@
-import type { RetrievedChunk, SessionDoc } from "./types";
+import type { Chunk, RetrievedChunk } from "./types";
+
+interface RetrievableDoc {
+  chunks: Chunk[];
+  embeddings: Float32Array[];
+}
 
 function dot(a: Float32Array, b: Float32Array): number {
   let s = 0;
@@ -8,7 +13,7 @@ function dot(a: Float32Array, b: Float32Array): number {
 }
 
 export function retrieve(
-  doc: SessionDoc,
+  doc: RetrievableDoc,
   queryEmbedding: Float32Array,
   k: number,
 ): RetrievedChunk[] {

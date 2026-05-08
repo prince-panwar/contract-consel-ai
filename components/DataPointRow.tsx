@@ -12,29 +12,38 @@ interface Props {
 }
 
 export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props) {
-  const [editing, setEditing] = useState<null | "field" | "value">(null);
+  const [editing, setEditing] = useState(false);
   const [fieldDraft, setFieldDraft] = useState(dp.field);
   const [valueDraft, setValueDraft] = useState(dp.value);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fieldRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setFieldDraft(dp.field), [dp.field]);
   useEffect(() => setValueDraft(dp.value), [dp.value]);
 
   useEffect(() => {
-    if (editing === "field") inputRef.current?.focus();
-    if (editing === "value") textareaRef.current?.focus();
+    if (editing) fieldRef.current?.focus();
   }, [editing]);
 
-  const commitField = () => {
-    const v = fieldDraft.trim();
-    if (v && v !== dp.field) onEdit(dp.id, { field: v });
-    setEditing(null);
+  const startEdit = () => {
+    setFieldDraft(dp.field);
+    setValueDraft(dp.value);
+    setEditing(true);
   };
-  const commitValue = () => {
+
+  const cancelEdit = () => {
+    setFieldDraft(dp.field);
+    setValueDraft(dp.value);
+    setEditing(false);
+  };
+
+  const saveEdit = () => {
+    const f = fieldDraft.trim();
     const v = valueDraft.trim();
-    if (v && v !== dp.value) onEdit(dp.id, { value: v });
-    setEditing(null);
+    const patch: Partial<Pick<DataPoint, "field" | "value">> = {};
+    if (f && f !== dp.field) patch.field = f;
+    if (v && v !== dp.value) patch.value = v;
+    if (Object.keys(patch).length > 0) onEdit(dp.id, patch);
+    setEditing(false);
   };
 
   const sourceBadge =
@@ -47,10 +56,13 @@ export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props
   return (
     <div
       onClick={(e) => {
+        if (editing) return;
         if ((e.target as HTMLElement).closest("button, input, textarea")) return;
         onSelect(dp);
       }}
-      className={`group relative rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${
+      className={`group relative rounded-lg border px-3 py-2.5 transition-colors ${
+        editing ? "" : "cursor-pointer"
+      } ${
         selected
           ? "border-accent bg-accent/5"
           : "border-border-subtle bg-bg-secondary hover:border-accent/40 hover:bg-bg-tertiary"
@@ -58,30 +70,22 @@ export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          {editing === "field" ? (
+          {editing ? (
             <input
-              ref={inputRef}
+              ref={fieldRef}
               value={fieldDraft}
               onChange={(e) => setFieldDraft(e.target.value)}
-              onBlur={commitField}
               onKeyDown={(e) => {
-                if (e.key === "Enter") commitField();
-                if (e.key === "Escape") {
-                  setFieldDraft(dp.field);
-                  setEditing(null);
-                }
+                if (e.key === "Enter") saveEdit();
+                if (e.key === "Escape") cancelEdit();
               }}
               className="w-full bg-bg-tertiary border border-accent rounded px-2 py-1 text-sm font-medium text-foreground outline-none"
+              placeholder="Field"
             />
           ) : (
-            <button
-              type="button"
-              onClick={() => setEditing("field")}
-              className="text-left text-sm font-medium text-foreground leading-snug truncate w-full"
-              title="Click to edit field"
-            >
+            <p className="text-sm font-medium text-foreground leading-snug truncate">
               {dp.field}
-            </button>
+            </p>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -100,66 +104,106 @@ export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props
           >
             p.{dp.page}
           </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(dp.id);
-            }}
-            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-danger transition-opacity p-1"
-            aria-label="Delete"
-            title="Delete"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              <path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            </svg>
-          </button>
+          {!editing && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startEdit();
+                }}
+                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent transition-opacity p-1"
+                aria-label="Edit"
+                title="Edit"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(dp.id);
+                }}
+                className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-danger transition-opacity p-1"
+                aria-label="Delete"
+                title="Delete"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                </svg>
+              </button>
+            </>
+          )}
         </div>
       </div>
-      {editing === "value" ? (
+      {editing ? (
         <textarea
-          ref={textareaRef}
           value={valueDraft}
           onChange={(e) => setValueDraft(e.target.value)}
-          onBlur={commitValue}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              commitValue();
+              saveEdit();
             }
-            if (e.key === "Escape") {
-              setValueDraft(dp.value);
-              setEditing(null);
-            }
+            if (e.key === "Escape") cancelEdit();
           }}
-          rows={2}
-          className="mt-1.5 w-full bg-bg-tertiary border border-accent rounded px-2 py-1.5 text-sm text-text-secondary outline-none resize-none"
+          rows={3}
+          className="mt-1.5 w-full bg-bg-tertiary border border-accent rounded px-2 py-1.5 text-sm text-text-secondary outline-none resize-y min-h-[3rem]"
+          placeholder="Value"
         />
       ) : (
-        <button
-          type="button"
-          onClick={() => setEditing("value")}
-          className="mt-1 text-left text-sm text-text-secondary leading-relaxed w-full whitespace-pre-wrap"
-          title="Click to edit value"
-        >
+        <p className="mt-1 text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
           {dp.value}
-        </button>
+        </p>
       )}
-      {dp.quote && (
+      {dp.quote && !editing && (
         <p className="mt-1.5 text-[0.72rem] text-text-muted italic leading-snug line-clamp-2">
           &ldquo;{dp.quote}&rdquo;
         </p>
+      )}
+      {editing && (
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            type="button"
+            onClick={saveEdit}
+            className="px-2.5 py-1 rounded bg-accent text-background text-xs font-medium hover:bg-accent-hover transition-colors"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="px-2.5 py-1 rounded border border-border-visible text-text-secondary text-xs hover:border-accent hover:text-accent transition-colors"
+          >
+            Cancel
+          </button>
+          <span className="text-[0.65rem] text-text-muted ml-auto">
+            Ctrl+Enter to save · Esc to cancel
+          </span>
+        </div>
       )}
     </div>
   );

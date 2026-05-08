@@ -32,7 +32,11 @@ interface Props {
   onLoaded?: (pageCount: number) => void;
 }
 
-const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+// Normalize aggressively: lowercase, strip all non-alphanumeric (including
+// punctuation, quotes, dashes), collapse whitespace. Matches across PDF's
+// typical text fragmentation.
+const normalize = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   { src, onLoaded },
@@ -64,7 +68,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
       jumpTo(page: number, quote?: string) {
         const clamped = Math.max(1, Math.min(numPages || 1, Math.floor(page)));
         setActivePage(clamped);
-        setHighlight(quote ? normalize(quote).slice(0, 80) : null);
+        // Store the FULL normalized quote. The renderer will check whether
+        // each small text run is a substring of it (PDFs fracture text into
+        // single-word runs — matching run ⊂ quote is far more reliable
+        // than quote ⊂ run).
+        setHighlight(quote ? normalize(quote) : null);
         const el = pageRefs.current.get(clamped);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -84,14 +92,21 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
 
   const renderTextLayer = useCallback(
     ({ str }: { str: string }): string => {
-      if (!highlight) return escapeHtml(str);
-      const lower = str.toLowerCase();
-      const idx = lower.indexOf(highlight);
-      if (idx < 0) return escapeHtml(str);
-      const before = escapeHtml(str.slice(0, idx));
-      const hit = escapeHtml(str.slice(idx, idx + highlight.length));
-      const after = escapeHtml(str.slice(idx + highlight.length));
-      return `${before}<mark class="pdf-highlight">${hit}</mark>${after}`;
+      if (!highlight || !str) return escapeHtml(str);
+      const runNorm = normalize(str);
+      // Skip very short or noise runs to avoid false positives from words
+      // like "the" / "of" that happen to be in the quote.
+      if (runNorm.length < 4) return escapeHtml(str);
+      // Match run as a substring of the full normalized quote.
+      if (highlight.includes(runNorm)) {
+        return `<mark class="pdf-highlight">${escapeHtml(str)}</mark>`;
+      }
+      // Fallback: maybe the run is longer than the quote (rare — quote got
+      // truncated) — check reverse direction.
+      if (runNorm.length >= 10 && runNorm.includes(highlight)) {
+        return `<mark class="pdf-highlight">${escapeHtml(str)}</mark>`;
+      }
+      return escapeHtml(str);
     },
     [highlight],
   );

@@ -6,7 +6,7 @@ import { DataPointRow } from "./DataPointRow";
 import { FindDataPoint } from "./FindDataPoint";
 
 interface Props {
-  sessionId: string;
+  reportId: string;
   dataPoints: DataPoint[];
   selectedId: string | null;
   onSelect: (dp: DataPoint) => void;
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export function DataPointTable({
-  sessionId,
+  reportId,
   dataPoints,
   selectedId,
   onSelect,
@@ -44,7 +44,7 @@ export function DataPointTable({
   return (
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-border-subtle space-y-3 bg-bg-secondary/40">
-        <FindDataPoint sessionId={sessionId} onAccept={onAdd} />
+        <FindDataPoint reportId={reportId} onAccept={onAdd} />
         <div className="flex items-center gap-2">
           <input
             value={filter}

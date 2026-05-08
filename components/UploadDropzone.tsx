@@ -1,16 +1,12 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { DataPoint, ExtractionStatus } from "@/lib/rag/types";
 
 export interface UploadResult {
-  sessionId: string;
+  reportId: string;
   filename: string;
   pageCount: number;
   chunkCount: number;
-  dataPoints?: DataPoint[];
-  extractionStatus?: ExtractionStatus;
-  extractionPassesTotal?: number;
 }
 
 interface Props {
@@ -20,7 +16,7 @@ interface Props {
 const PROGRESS_STEPS = [
   "Parsing PDF…",
   "Embedding chunks…",
-  "Preparing viewer…",
+  "Saving report…",
 ];
 
 export function UploadDropzone({ onUploaded }: Props) {
@@ -130,7 +126,7 @@ export function UploadDropzone({ onUploaded }: Props) {
             </p>
             <p className="text-sm text-text-muted mt-1">
               {uploading
-                ? "Extraction continues in the background after upload completes."
+                ? "Just a moment — we'll send you to the configure step."
                 : "or click to browse. PDF only, up to 40 MB."}
             </p>
           </div>
@@ -138,7 +134,7 @@ export function UploadDropzone({ onUploaded }: Props) {
       </label>
       {error && <p className="mt-4 text-sm text-danger text-center">{error}</p>}
       <p className="mt-6 text-xs text-text-muted text-center">
-        Your document stays in server memory for this session only. Not stored to disk.
+        Stored in your private MongoDB. Only the admin can access uploaded contracts.
       </p>
     </div>
   );

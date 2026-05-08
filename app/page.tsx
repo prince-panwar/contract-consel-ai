@@ -1,5 +1,10 @@
-import { Workbench } from "@/components/Workbench";
+import { AppShell } from "@/components/AppShell";
+import { UploadLanding } from "@/components/UploadLanding";
 
 export default function Home() {
-  return <Workbench />;
+  return (
+    <AppShell>
+      <UploadLanding />
+    </AppShell>
+  );
 }

@@ -2,12 +2,16 @@ import { nanoid } from "nanoid";
 import { Type } from "@google/genai";
 import { getGenAI } from "../llm/client";
 import {
-  EXTRACTION_SYSTEM_PROMPT,
   FIND_DATAPOINT_SYSTEM_PROMPT,
-  buildExtractionUserMessage,
+  TARGETED_EXTRACTION_SYSTEM_PROMPT,
   buildFindUserMessage,
+  buildTargetedExtractionUserMessage,
 } from "../llm/prompts";
-import type { DataPoint, RetrievedChunk } from "../rag/types";
+import type {
+  DataPoint,
+  DataPointDefinition,
+  RetrievedChunk,
+} from "../rag/types";
 import type { PdfPage } from "../rag/pdf";
 import { ragConfig } from "../constants";
 import { locateQuote } from "./verify";
@@ -19,26 +23,31 @@ interface RawPoint {
   page?: unknown;
 }
 
-const EXTRACTION_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    dataPoints: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          field: { type: Type.STRING },
-          value: { type: Type.STRING },
-          quote: { type: Type.STRING },
-          page: { type: Type.INTEGER },
+function buildExtractionSchema(targetFields: DataPointDefinition[]) {
+  return {
+    type: Type.OBJECT,
+    properties: {
+      dataPoints: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            field: {
+              type: Type.STRING,
+              enum: targetFields.map((f) => f.name),
+            },
+            value: { type: Type.STRING },
+            quote: { type: Type.STRING },
+            page: { type: Type.INTEGER },
+          },
+          required: ["field", "value", "quote", "page"],
+          propertyOrdering: ["field", "value", "quote", "page"],
         },
-        required: ["field", "value", "quote", "page"],
-        propertyOrdering: ["field", "value", "quote", "page"],
       },
     },
-  },
-  required: ["dataPoints"],
-};
+    required: ["dataPoints"],
+  };
+}
 
 const FIND_SCHEMA = {
   type: Type.OBJECT,
@@ -58,7 +67,10 @@ const FIND_SCHEMA = {
   required: ["dataPoint"],
 };
 
-function coerceRawPoint(raw: RawPoint): Omit<DataPoint, "id" | "verified" | "source"> | null {
+function coerceRawPoint(
+  raw: RawPoint,
+  allowedFields: Set<string> | null,
+): Omit<DataPoint, "id" | "verified" | "source"> | null {
   if (
     typeof raw.field !== "string" ||
     typeof raw.value !== "string" ||
@@ -70,6 +82,7 @@ function coerceRawPoint(raw: RawPoint): Omit<DataPoint, "id" | "verified" | "sou
   const value = raw.value.trim();
   const quote = raw.quote.trim();
   if (!field || !value || !quote) return null;
+  if (allowedFields && !allowedFields.has(field)) return null;
   let page = Number(raw.page);
   if (!Number.isFinite(page) || page < 1) page = 1;
   return { field, value, quote: quote.slice(0, 500), page: Math.floor(page) };
@@ -102,7 +115,7 @@ async function callGeminiJson<T>(args: {
 }): Promise<T> {
   const ai = getGenAI();
   const maxAttempts = 4;
-  const requestTimeoutMs = 240_000; // 4 min hard cap per call
+  const requestTimeoutMs = 240_000;
   let attempt = 0;
   let lastErr: unknown;
 
@@ -176,20 +189,21 @@ function sliceIntoWindows<T>(arr: T[], size: number): T[][] {
 
 async function runOneExtractionPass(
   pages: PdfPage[],
-  alreadyExtracted: DataPoint[],
+  targetFields: DataPointDefinition[],
+  schema: object,
 ): Promise<RawPoint[]> {
-  const userMessage = buildExtractionUserMessage(pages, alreadyExtracted);
+  const userMessage = buildTargetedExtractionUserMessage(pages, targetFields);
   const charCount = userMessage.length;
   const firstPage = pages[0]?.pageNumber;
   const lastPage = pages[pages.length - 1]?.pageNumber;
   console.log(
-    `[extract]   calling Gemini — pages ${firstPage}-${lastPage} (${pages.length}), ${charCount} chars (~${Math.round(charCount / 4)} tokens)`,
+    `[extract]   calling Gemini — pages ${firstPage}-${lastPage} (${pages.length}), ${charCount} chars (~${Math.round(charCount / 4)} tokens), targets=${targetFields.length}`,
   );
 
   const parsed = await callGeminiJson<{ dataPoints: RawPoint[] }>({
-    systemInstruction: EXTRACTION_SYSTEM_PROMPT,
+    systemInstruction: TARGETED_EXTRACTION_SYSTEM_PROMPT,
     userMessage,
-    schema: EXTRACTION_SCHEMA,
+    schema,
     maxOutputTokens: ragConfig.extractionMaxOutputTokens,
   });
   return Array.isArray(parsed?.dataPoints) ? parsed.dataPoints : [];
@@ -205,9 +219,16 @@ export interface ExtractionPassResult {
 
 export async function extractDataPoints(
   allPages: PdfPage[],
+  targetFields: DataPointDefinition[],
   onPass?: (result: ExtractionPassResult) => void | Promise<void>,
 ): Promise<DataPoint[]> {
   if (allPages.length === 0) return [];
+  if (targetFields.length === 0) {
+    throw new Error("extractDataPoints requires at least one target field.");
+  }
+
+  const allowedFields = new Set(targetFields.map((f) => f.name));
+  const schema = buildExtractionSchema(targetFields);
 
   const collected: DataPoint[] = [];
   const dedupe = new Set<string>();
@@ -227,20 +248,26 @@ export async function extractDataPoints(
 
     let raw: RawPoint[] = [];
     try {
-      raw = await runOneExtractionPass(inputPages, collected);
+      raw = await runOneExtractionPass(inputPages, targetFields, schema);
     } catch (err) {
-      // Don't abort the whole doc on a single-window failure.
-      // Record the failure, move to the next window.
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[extract]   pass ${pass} failed:`, message);
     }
 
     const newPoints: DataPoint[] = [];
+    let duplicates = 0;
+    let invalid = 0;
     for (const r of raw) {
-      const coerced = coerceRawPoint(r);
-      if (!coerced) continue;
+      const coerced = coerceRawPoint(r, allowedFields);
+      if (!coerced) {
+        invalid += 1;
+        continue;
+      }
       const key = dedupeKey(coerced);
-      if (dedupe.has(key)) continue;
+      if (dedupe.has(key)) {
+        duplicates += 1;
+        continue;
+      }
 
       const located = locateQuote(coerced.quote, allPages, coerced.page);
       const page = located?.page ?? coerced.page;
@@ -259,6 +286,9 @@ export async function extractDataPoints(
       collected.push(dp);
       dedupe.add(key);
     }
+    console.log(
+      `[extract]   pass ${pass} raw=${raw.length} new=${newPoints.length} dup=${duplicates} invalid=${invalid}`,
+    );
 
     if (onPass) {
       await onPass({
@@ -290,7 +320,7 @@ export async function findSingleDataPoint(
   const raw = parsed?.dataPoint;
   if (!raw) return null;
 
-  const coerced = coerceRawPoint(raw);
+  const coerced = coerceRawPoint(raw, null);
   if (!coerced) return null;
 
   const located = locateQuote(coerced.quote, allPages, coerced.page);

@@ -2,22 +2,27 @@ import type { NextRequest } from "next/server";
 import { nanoid } from "nanoid";
 import {
   addDataPoint,
+  getReport,
   patchDataPoint,
   removeDataPoint,
-  getSessionAsync,
-} from "@/lib/rag/vectorStore";
-import { resolveSessionId } from "@/lib/rag/session";
+} from "@/lib/db/reports";
 import type { DataPoint } from "@/lib/rag/types";
 import { locateQuote } from "@/lib/extract/verify";
+
+export const runtime = "nodejs";
+
+interface RouteContext {
+  params: Promise<{ id: string }>;
+}
 
 function jsonError(message: string, status: number) {
   return Response.json({ error: message }, { status });
 }
 
-export async function POST(request: NextRequest) {
-  const sessionId = await resolveSessionId(request);
-  const doc = await getSessionAsync(sessionId);
-  if (!doc || !sessionId) return jsonError("Session expired.", 410);
+export async function POST(request: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  const report = await getReport(id);
+  if (!report) return jsonError("Report not found.", 404);
 
   let body: {
     field?: string;
@@ -37,7 +42,7 @@ export async function POST(request: NextRequest) {
   const quote = (body.quote ?? "").trim();
   if (!field || !value) return jsonError("'field' and 'value' are required.", 400);
 
-  const located = quote ? locateQuote(quote, doc.pages, body.page) : null;
+  const located = quote ? locateQuote(quote, report.pages, body.page) : null;
   const page = located?.page ?? (typeof body.page === "number" ? body.page : 1);
   const verified = located?.verified ?? false;
 
@@ -51,13 +56,13 @@ export async function POST(request: NextRequest) {
     source: body.source === "ai-found" ? "ai-found" : "user-added",
   };
 
-  addDataPoint(sessionId, dp);
-  return Response.json({ dataPoint: dp });
+  const result = await addDataPoint(id, dp);
+  if (!result) return jsonError("Report not found.", 404);
+  return Response.json({ dataPoint: result });
 }
 
-export async function PATCH(request: NextRequest) {
-  const sessionId = await resolveSessionId(request);
-  if (!sessionId) return jsonError("Session expired.", 410);
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
 
   let body: {
     id?: string;
@@ -70,17 +75,16 @@ export async function PATCH(request: NextRequest) {
   }
   if (!body.id || !body.patch) return jsonError("'id' and 'patch' required.", 400);
 
-  const updated = patchDataPoint(sessionId, body.id, body.patch);
+  const updated = await patchDataPoint(id, body.id, body.patch);
   if (!updated) return jsonError("Data point not found.", 404);
   return Response.json({ dataPoint: updated });
 }
 
-export async function DELETE(request: NextRequest) {
-  const sessionId = await resolveSessionId(request);
-  if (!sessionId) return jsonError("Session expired.", 410);
-  const id = request.nextUrl.searchParams.get("id");
-  if (!id) return jsonError("Missing 'id' query param.", 400);
-  const ok = removeDataPoint(sessionId, id);
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  const dpId = request.nextUrl.searchParams.get("id");
+  if (!dpId) return jsonError("Missing 'id' query param.", 400);
+  const ok = await removeDataPoint(id, dpId);
   if (!ok) return jsonError("Data point not found.", 404);
   return new Response(null, { status: 204 });
 }

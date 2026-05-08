@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import type { DataPoint } from "@/lib/rag/types";
 
 interface Props {
+  reportId: string;
   filename: string;
   dataPoints: DataPoint[];
   disabled?: boolean;
 }
 
-export function ExportMenu({ filename, dataPoints, disabled }: Props) {
+export function ExportMenu({ reportId, filename, dataPoints, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<"xlsx" | "docx" | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -26,10 +27,10 @@ export function ExportMenu({ filename, dataPoints, disabled }: Props) {
     if (busy || dataPoints.length === 0) return;
     setBusy(format);
     try {
-      const res = await fetch("/api/contract/export", {
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, filename, dataPoints }),
+        body: JSON.stringify({ format }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
