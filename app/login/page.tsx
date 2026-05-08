@@ -4,7 +4,7 @@ import { decryptSession, sessionCookie } from "@/lib/auth/session";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
-  title: "Sign in — ContractCounsel",
+  title: "Sign in — ContractConsel",
 };
 
 export default async function LoginPage() {
@@ -18,7 +18,7 @@ export default async function LoginPage() {
       <header className="px-8 py-6 border-b border-border-subtle">
         <div className="flex items-center gap-2">
           <span className="font-serif text-2xl tracking-tight text-foreground">
-            ContractCounsel
+            ContractConsel
           </span>
           <span className="text-accent text-2xl leading-none">.</span>
         </div>

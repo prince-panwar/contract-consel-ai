@@ -1,4 +1,4 @@
-# ContractCounsel AI
+# ContractConsel AI
 
 AI contract analysis with RAG. Upload a PDF, ask questions, get grounded answers with citations to the exact section and page.
 

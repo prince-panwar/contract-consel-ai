@@ -7,7 +7,8 @@
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "NODE_OPTIONS=--max-old-space-size=4096 next start",
     "lint": "eslint",
-    "hash-password": "tsx bin/hash-password.ts"
+    "hash-password": "tsx bin/hash-password.ts",
+    "check-admin": "tsx bin/check-admin.ts"
   },
   "dependencies": {
     "@google/genai": "^1.50.0",

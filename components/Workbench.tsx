@@ -72,6 +72,7 @@ export function Workbench({ reportId }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pdfSrc, setPdfSrc] = useState<string | null>(null);
   const [pdfState, setPdfState] = useState<PdfLoadState>("idle");
+  const [pdfRetryNonce, setPdfRetryNonce] = useState(0);
   const [toast, setToast] = useState<{ kind: "info" | "error"; message: string } | null>(
     null,
   );
@@ -116,13 +117,8 @@ export function Workbench({ reportId }: Props) {
     };
   }, [reportId]);
 
-  // ---- Fetch PDF bytes once we know the report exists
+  // ---- Fetch PDF bytes (once per reportId; bump pdfRetryNonce to retry)
   useEffect(() => {
-    if (!report) {
-      setPdfSrc(null);
-      setPdfState("idle");
-      return;
-    }
     let active = true;
     setPdfState("loading");
     (async () => {
@@ -149,7 +145,7 @@ export function Workbench({ reportId }: Props) {
     return () => {
       active = false;
     };
-  }, [reportId, report?.reportId, report]);
+  }, [reportId, pdfRetryNonce]);
 
   useEffect(() => {
     return () => {
@@ -159,26 +155,16 @@ export function Workbench({ reportId }: Props) {
 
   // ---- Tick elapsed timer (only while extraction is running)
   useEffect(() => {
-    if (!report) return;
-    if (
-      report.extractionStatus !== "pending" &&
-      report.extractionStatus !== "running"
-    ) {
-      return;
-    }
+    const status = report?.extractionStatus;
+    if (status !== "pending" && status !== "running") return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [report?.extractionStatus, report]);
+  }, [report?.extractionStatus]);
 
   // ---- Poll status while extraction is running/pending
   useEffect(() => {
-    if (!report) return;
-    if (
-      report.extractionStatus !== "pending" &&
-      report.extractionStatus !== "running"
-    ) {
-      return;
-    }
+    const status = report?.extractionStatus;
+    if (status !== "pending" && status !== "running") return;
 
     let cancelled = false;
     const tick = async () => {
@@ -217,7 +203,7 @@ export function Workbench({ reportId }: Props) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [reportId, report?.extractionStatus, flashToast, report]);
+  }, [reportId, report?.extractionStatus, flashToast]);
 
   const handleSelect = useCallback((dp: DataPoint) => {
     setSelectedId(dp.id);
@@ -302,10 +288,8 @@ export function Workbench({ reportId }: Props) {
   }, []);
 
   const retryPdf = useCallback(() => {
-    if (!report) return;
-    setPdfState("loading");
-    setReport((prev) => (prev ? { ...prev } : prev));
-  }, [report]);
+    setPdfRetryNonce((n) => n + 1);
+  }, []);
 
   if (loadError) {
     return (

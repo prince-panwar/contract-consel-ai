@@ -81,7 +81,7 @@ export async function buildDocx(
   });
 
   const doc = new Document({
-    creator: "ContractCounsel",
+    creator: "ContractConsel",
     title: `Data Points — ${filename}`,
     sections: [
       {

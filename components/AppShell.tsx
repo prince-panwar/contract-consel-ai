@@ -30,7 +30,7 @@ export function AppShell({ children }: Props) {
       <header className="px-6 py-3 border-b border-border-subtle flex items-center justify-between gap-4 bg-bg-secondary/40 shrink-0">
         <Link href="/" className="flex items-center gap-2">
           <span className="font-serif text-lg tracking-tight text-foreground">
-            ContractCounsel
+            ContractConsel
           </span>
           <span className="text-accent text-lg leading-none">.</span>
         </Link>

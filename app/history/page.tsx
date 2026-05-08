@@ -2,7 +2,7 @@ import { AppShell } from "@/components/AppShell";
 import { HistoryList } from "@/components/HistoryList";
 
 export const metadata = {
-  title: "History — ContractCounsel",
+  title: "History — ContractConsel",
 };
 
 export default function HistoryPage() {

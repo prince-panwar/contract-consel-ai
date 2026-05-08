@@ -13,7 +13,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "ContractCounsel — AI contract analysis",
+  title: "ContractConsel — AI contract analysis",
   description:
     "Upload a contract and ask grounded, citation-backed questions. RAG-powered document analysis.",
 };
