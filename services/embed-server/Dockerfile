@@ -47,10 +47,10 @@ RUN useradd --create-home --shell /bin/bash --uid 10001 app
 
 WORKDIR /app
 
-# Cap V8 heap; ONNX runtime's native allocations are OUTSIDE this number,
-# so leaving ~500 MB for native tensors is more important than V8 heap.
+# Heap sized for the Ampere A1 target. ONNX native allocations are OUTSIDE
+# this number; the container memory limit in docker-compose is the real ceiling.
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--max-old-space-size=400 \
+    NODE_OPTIONS=--max-old-space-size=2048 \
     TRANSFORMERS_CACHE=/opt/model-cache \
     HOST=0.0.0.0
 

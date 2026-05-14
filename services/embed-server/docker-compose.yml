@@ -17,11 +17,10 @@ services:
       # Bind to all interfaces so Vercel can reach it via the Oracle public IP.
       # Change to "127.0.0.1:8080:8080" if you put Caddy/Cloudflared in front.
       - "${PORT:-3000}:${PORT:-3000}"
-    # Allow the container to use almost all of the box's RAM plus swap.
-    # An earlier 850m cap was triggering swap-thrashing during inference
-    # because the cgroup hit its ceiling while the OS still had free RAM.
-    mem_limit: 950m
-    memswap_limit: 3g
+    # Sized for the Ampere A1 target (24 GB RAM, 4 OCPU). On the old AMD
+    # micro you would lower these back to 950m / 3g.
+    mem_limit: 4g
+    memswap_limit: 6g
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${PORT:-3000}/health"]
       interval: 30s

@@ -23,6 +23,8 @@ export async function GET(_request: Request, context: RouteContext) {
     pageCount: report.pageCount,
     targetFields: report.targetFields,
     dataPoints: report.dataPoints,
+    processingStatus: report.processingStatus,
+    processingError: report.processingError,
     extractionStatus: report.extractionStatus,
     extractionPassesDone: report.extractionPassesDone,
     extractionPassesTotal: report.extractionPassesTotal,

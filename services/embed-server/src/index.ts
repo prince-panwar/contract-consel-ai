@@ -5,6 +5,7 @@ import { warmup } from "./embedder.js";
 import { Semaphore } from "./semaphore.js";
 import { registerEmbedRoute } from "./routes/embed.js";
 import { registerParsePdfRoute } from "./routes/parse-pdf.js";
+import { registerProcessReportRoute } from "./routes/process-report.js";
 
 async function main() {
   const app = Fastify({
@@ -33,6 +34,7 @@ async function main() {
   const gate = new Semaphore(config.maxConcurrency);
   registerEmbedRoute(app, gate);
   registerParsePdfRoute(app, gate);
+  registerProcessReportRoute(app);
 
   app.log.info("Pre-loading embedding model...");
   await warmup();

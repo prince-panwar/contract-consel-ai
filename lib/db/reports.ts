@@ -5,6 +5,7 @@ import type {
   DataPoint,
   DataPointDefinition,
   ExtractionStatus,
+  ProcessingStatus,
   Report,
   ReportSummary,
 } from "@/lib/rag/types";
@@ -19,6 +20,10 @@ interface ReportDoc {
   pages: PdfPage[];
   targetFields: DataPointDefinition[];
   dataPoints: DataPoint[];
+  // processingStatus is undefined for legacy docs created before the async
+  // pipeline; treat undefined as "ready" via the helper below.
+  processingStatus?: ProcessingStatus;
+  processingError?: string | null;
   extractionStatus: ExtractionStatus;
   extractionPassesDone: number;
   extractionPassesTotal: number;
@@ -53,6 +58,8 @@ function toReport(doc: ReportDoc): Report {
     pages: doc.pages,
     targetFields: doc.targetFields,
     dataPoints: doc.dataPoints,
+    processingStatus: doc.processingStatus ?? "ready",
+    processingError: doc.processingError ?? null,
     extractionStatus: doc.extractionStatus,
     extractionPassesDone: doc.extractionPassesDone,
     extractionPassesTotal: doc.extractionPassesTotal,
@@ -83,6 +90,8 @@ export async function createReport(input: CreateReportInput): Promise<Report> {
     pages: input.pages,
     targetFields: [],
     dataPoints: [],
+    processingStatus: "ready",
+    processingError: null,
     extractionStatus: "awaiting-config",
     extractionPassesDone: 0,
     extractionPassesTotal: 0,
@@ -94,6 +103,77 @@ export async function createReport(input: CreateReportInput): Promise<Report> {
   const reports = await getReports();
   await reports.insertOne(doc);
   return toReport(doc);
+}
+
+export async function createReportShell(input: {
+  reportId: string;
+  filename: string;
+}): Promise<void> {
+  const now = Date.now();
+  const doc: ReportDoc = {
+    reportId: input.reportId,
+    filename: input.filename,
+    pageCount: 0,
+    chunks: [],
+    embeddingsB64: [],
+    pages: [],
+    targetFields: [],
+    dataPoints: [],
+    processingStatus: "processing",
+    processingError: null,
+    extractionStatus: "awaiting-config",
+    extractionPassesDone: 0,
+    extractionPassesTotal: 0,
+    extractionError: null,
+    extractionStartedAt: null,
+    createdAt: now,
+    lastAccessAt: now,
+  };
+  const reports = await getReports();
+  await reports.insertOne(doc);
+}
+
+export async function markReportReady(
+  reportId: string,
+  payload: {
+    chunks: Chunk[];
+    embeddingsB64: string[];
+    pages: PdfPage[];
+    pageCount: number;
+  },
+): Promise<void> {
+  const reports = await getReports();
+  await reports.updateOne(
+    { reportId },
+    {
+      $set: {
+        chunks: payload.chunks,
+        embeddingsB64: payload.embeddingsB64,
+        pages: payload.pages,
+        pageCount: payload.pageCount,
+        processingStatus: "ready",
+        processingError: null,
+        lastAccessAt: Date.now(),
+      },
+    },
+  );
+}
+
+export async function markReportError(
+  reportId: string,
+  message: string,
+): Promise<void> {
+  const reports = await getReports();
+  await reports.updateOne(
+    { reportId },
+    {
+      $set: {
+        processingStatus: "error",
+        processingError: message,
+        lastAccessAt: Date.now(),
+      },
+    },
+  );
 }
 
 export async function getReport(reportId: string): Promise<Report | null> {

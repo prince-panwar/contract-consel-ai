@@ -24,10 +24,10 @@ export async function warmup(): Promise<void> {
   await getExtractor();
 }
 
-// Internal batch size — keeps peak tensor memory low enough that a 1 GB
-// E2.1.Micro doesn't start swapping mid-inference. Each item adds ~30 MB of
-// transient tensor memory; 8 keeps the spike well under 200 MB.
-const INTERNAL_BATCH = 8;
+// Sized for the 4 OCPU / 24 GB Ampere A1 target. ONNX runtime parallelises
+// across the batch dimension across cores, so one fat call beats many small
+// ones. On the old 1 GB AMD micro you would lower this back to 8.
+const INTERNAL_BATCH = 64;
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];

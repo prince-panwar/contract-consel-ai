@@ -22,5 +22,7 @@ export async function GET(_request: Request, context: RouteContext) {
     targetFields: report.targetFields,
     pageCount: report.pageCount,
     filename: report.filename,
+    processingStatus: report.processingStatus,
+    processingError: report.processingError,
   });
 }

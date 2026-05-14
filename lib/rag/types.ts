@@ -37,6 +37,8 @@ export type ExtractionStatus =
   | "done"
   | "error";
 
+export type ProcessingStatus = "processing" | "ready" | "error";
+
 export interface Report {
   reportId: string;
   filename: string;
@@ -46,6 +48,8 @@ export interface Report {
   pages: PdfPage[];
   targetFields: DataPointDefinition[];
   dataPoints: DataPoint[];
+  processingStatus: ProcessingStatus;
+  processingError: string | null;
   extractionStatus: ExtractionStatus;
   extractionPassesDone: number;
   extractionPassesTotal: number;

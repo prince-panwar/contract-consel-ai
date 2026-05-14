@@ -12,6 +12,7 @@ import type {
   DataPoint,
   DataPointDefinition,
   ExtractionStatus,
+  ProcessingStatus,
 } from "@/lib/rag/types";
 
 const PdfViewer = dynamic(
@@ -34,6 +35,8 @@ interface ReportState {
   pageCount: number;
   targetFields: DataPointDefinition[];
   dataPoints: DataPoint[];
+  processingStatus: ProcessingStatus;
+  processingError: string | null;
   extractionStatus: ExtractionStatus;
   extractionPassesDone: number;
   extractionPassesTotal: number;
@@ -50,6 +53,8 @@ interface StatusPayload {
   targetFields: DataPointDefinition[];
   pageCount: number;
   filename: string;
+  processingStatus: ProcessingStatus;
+  processingError: string | null;
 }
 
 type PdfLoadState = "idle" | "loading" | "loaded" | "error-retry";
@@ -161,10 +166,13 @@ export function Workbench({ reportId }: Props) {
     return () => clearInterval(id);
   }, [report?.extractionStatus]);
 
-  // ---- Poll status while extraction is running/pending
+  // ---- Poll status while embedding is processing OR extraction is running
   useEffect(() => {
-    const status = report?.extractionStatus;
-    if (status !== "pending" && status !== "running") return;
+    const processing = report?.processingStatus === "processing";
+    const extracting =
+      report?.extractionStatus === "pending" ||
+      report?.extractionStatus === "running";
+    if (!processing && !extracting) return;
 
     let cancelled = false;
     const tick = async () => {
@@ -180,8 +188,11 @@ export function Workbench({ reportId }: Props) {
           prev
             ? {
                 ...prev,
+                pageCount: data.pageCount,
                 dataPoints: data.dataPoints,
                 targetFields: data.targetFields,
+                processingStatus: data.processingStatus,
+                processingError: data.processingError,
                 extractionStatus: data.status,
                 extractionPassesDone: data.passesDone,
                 extractionPassesTotal: data.passesTotal,
@@ -191,6 +202,13 @@ export function Workbench({ reportId }: Props) {
         );
         if (data.status === "error") {
           flashToast(`Extraction failed: ${data.error || "unknown error"}`, "error", 12_000);
+        }
+        if (data.processingStatus === "error") {
+          flashToast(
+            `Processing failed: ${data.processingError || "unknown error"}`,
+            "error",
+            12_000,
+          );
         }
       } catch {
         /* ignore */
@@ -203,7 +221,12 @@ export function Workbench({ reportId }: Props) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [reportId, report?.extractionStatus, flashToast]);
+  }, [
+    reportId,
+    report?.processingStatus,
+    report?.extractionStatus,
+    flashToast,
+  ]);
 
   const handleSelect = useCallback((dp: DataPoint) => {
     setSelectedId(dp.id);
@@ -311,6 +334,47 @@ export function Workbench({ reportId }: Props) {
     return (
       <main className="flex-1 flex items-center justify-center text-sm text-text-muted">
         Loading report…
+      </main>
+    );
+  }
+
+  if (report.processingStatus === "processing") {
+    return (
+      <main className="flex-1 flex items-center justify-center px-6 py-16">
+        <div className="max-w-md text-center flex flex-col items-center gap-4">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-60"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+          </span>
+          <p className="text-sm text-foreground font-medium">
+            Processing your contract…
+          </p>
+          <p className="text-xs text-text-muted">
+            Extracting text and computing embeddings. This page will update
+            automatically when it&apos;s ready.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (report.processingStatus === "error") {
+    return (
+      <main className="flex-1 flex items-center justify-center px-6 py-16">
+        <div className="max-w-md text-center flex flex-col items-center gap-4">
+          <p className="text-sm text-danger font-medium">Processing failed.</p>
+          {report.processingError && (
+            <p className="text-xs text-text-muted break-words">
+              {report.processingError}
+            </p>
+          )}
+          <Link
+            href="/history"
+            className="inline-block mt-2 px-3 py-1.5 rounded-lg border border-border-visible text-text-secondary text-sm hover:border-accent hover:text-accent transition-colors"
+          >
+            Back to history
+          </Link>
+        </div>
       </main>
     );
   }

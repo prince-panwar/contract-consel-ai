@@ -20,6 +20,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   const report = await getReport(id);
   if (!report) return jsonError("Report not found.", 404);
+  if (report.processingStatus !== "ready") {
+    return jsonError(
+      `Report is still ${report.processingStatus}. Wait for embeddings to finish.`,
+      409,
+    );
+  }
 
   let body: { query?: string };
   try {

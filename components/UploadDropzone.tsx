@@ -14,9 +14,9 @@ interface Props {
 }
 
 const PROGRESS_STEPS = [
-  "Parsing PDF…",
-  "Embedding chunks…",
-  "Saving report…",
+  "Uploading PDF…",
+  "Storing on server…",
+  "Queuing for processing…",
 ];
 
 export function UploadDropzone({ onUploaded }: Props) {

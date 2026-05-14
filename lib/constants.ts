@@ -8,8 +8,10 @@ export const ragConfig = {
   embeddingServiceApiKey: process.env.EMBED_SERVICE_API_KEY ?? "",
   // all-MiniLM-L6-v2 produces 384-dim sentence embeddings.
   embeddingDim: 384,
-  chunkTargetChars: 2000,
-  chunkOverlapChars: 320,
+  // MiniLM-L6 maxes at 256 input tokens (~1000 chars). Larger chunks were
+  // silently truncated and burned tokenizer cycles on text the model never saw.
+  chunkTargetChars: 1000,
+  chunkOverlapChars: 160,
   topK: 6,
   maxContextChars: 8000,
   maxPdfBytes: 40 * 1024 * 1024,
