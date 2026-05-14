@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Self-contained Node service (Oracle deploy) with its own toolchain.
+    "services/**",
   ]),
 ]);
 

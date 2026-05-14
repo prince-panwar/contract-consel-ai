@@ -1,48 +1,64 @@
-import { ragConfig } from "../constants";
-import { getGenAI } from "../llm/client";
+import { requireEmbedServiceConfig } from "../constants";
 
-// Gemini embedding API. Pure HTTP — no native deps, serverless-clean.
-// Each request can embed up to 100 inputs and ~2k tokens per input.
-const BATCH_SIZE = 50;
+// Embeddings live on a self-hosted Node service (services/embed-server/), not
+// on Vercel. See that directory's README for deployment. The service returns
+// 384-dim MiniLM vectors.
 
-async function embedBatch(
-  texts: string[],
-  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY",
-): Promise<Float32Array[]> {
+const EMBED_BATCH = 64;
+const FETCH_TIMEOUT_MS = 30_000;
+
+async function postEmbed(texts: string[]): Promise<Float32Array[]> {
   if (texts.length === 0) return [];
-  const ai = getGenAI();
-  const response = await ai.models.embedContent({
-    model: ragConfig.embeddingModel,
-    contents: texts,
-    config: { taskType, outputDimensionality: ragConfig.embeddingDim },
-  });
-  const list = response.embeddings;
-  if (!Array.isArray(list) || list.length !== texts.length) {
+  const { url, apiKey } = requireEmbedServiceConfig();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${url}/embed`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({ texts }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`embed-server ${response.status}: ${body.slice(0, 200)}`);
+  }
+
+  const data = (await response.json()) as { vectors?: unknown };
+  if (!Array.isArray(data.vectors) || data.vectors.length !== texts.length) {
     throw new Error(
-      `Gemini embedContent returned ${list?.length ?? 0} vectors for ${texts.length} inputs.`,
+      `embed-server returned ${Array.isArray(data.vectors) ? data.vectors.length : 0} vectors for ${texts.length} inputs.`,
     );
   }
-  return list.map((e) => {
-    const values = e.values;
-    if (!Array.isArray(values)) {
-      throw new Error("Gemini embedding response missing values array.");
+  return data.vectors.map((v, i) => {
+    if (!Array.isArray(v) || !v.every((n) => typeof n === "number")) {
+      throw new Error(`embed-server returned non-numeric vector at index ${i}.`);
     }
-    return new Float32Array(values);
+    return new Float32Array(v as number[]);
   });
 }
 
 export async function embed(texts: string[]): Promise<Float32Array[]> {
   if (texts.length === 0) return [];
   const out: Float32Array[] = [];
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const vectors = await embedBatch(batch, "RETRIEVAL_DOCUMENT");
+  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+    const batch = texts.slice(i, i + EMBED_BATCH);
+    const vectors = await postEmbed(batch);
     out.push(...vectors);
   }
   return out;
 }
 
 export async function embedOne(text: string): Promise<Float32Array> {
-  const [v] = await embedBatch([text], "RETRIEVAL_QUERY");
+  const [v] = await postEmbed([text]);
   return v;
 }

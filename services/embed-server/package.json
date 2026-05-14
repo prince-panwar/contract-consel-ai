@@ -1,0 +1,29 @@
+{
+  "name": "embed-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted embeddings + PDF parsing for contract-counsel-ai. Runs on Oracle Cloud Always Free.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "prewarm": "node -e \"require('@xenova/transformers').pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2').then(()=>console.log('model cached'))\""
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.0.1",
+    "@xenova/transformers": "^2.17.2",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.2.0",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

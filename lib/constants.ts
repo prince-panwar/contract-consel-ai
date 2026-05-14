@@ -2,10 +2,12 @@ export const ragConfig = {
   // Gemini 2.5 Flash: 1M context, generous free-tier TPM/RPM, strong JSON mode.
   // Flash-lite is cheaper/faster if quality is acceptable.
   model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-  // Gemini embedding API. Serverless-friendly (HTTP, no native deps).
-  // 768-dim is the recommended Matryoshka size for retrieval — good quality, fast dot products.
-  embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001",
-  embeddingDim: 768,
+  // Embeddings + PDF parsing live on a self-hosted Node service (Oracle).
+  // See services/embed-server/. URL/key are required at runtime.
+  embeddingServiceUrl: process.env.EMBED_SERVICE_URL ?? "",
+  embeddingServiceApiKey: process.env.EMBED_SERVICE_API_KEY ?? "",
+  // all-MiniLM-L6-v2 produces 384-dim sentence embeddings.
+  embeddingDim: 384,
   chunkTargetChars: 2000,
   chunkOverlapChars: 320,
   topK: 6,
@@ -28,3 +30,16 @@ export const ragConfig = {
   // Export
   exportMaxRows: 500,
 } as const;
+
+export function requireEmbedServiceConfig(): { url: string; apiKey: string } {
+  if (!ragConfig.embeddingServiceUrl) {
+    throw new Error("EMBED_SERVICE_URL is not set.");
+  }
+  if (!ragConfig.embeddingServiceApiKey) {
+    throw new Error("EMBED_SERVICE_API_KEY is not set.");
+  }
+  return {
+    url: ragConfig.embeddingServiceUrl.replace(/\/+$/, ""),
+    apiKey: ragConfig.embeddingServiceApiKey,
+  };
+}

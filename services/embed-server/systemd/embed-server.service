@@ -1,0 +1,24 @@
+[Unit]
+Description=contract-counsel-ai embed-server (Xenova MiniLM + pdf-parse)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Replace with the actual user that owns the repo on the box (e.g. ubuntu, opc).
+User=ubuntu
+WorkingDirectory=/home/ubuntu/contract-counsel-ai/services/embed-server
+EnvironmentFile=/home/ubuntu/contract-counsel-ai/services/embed-server/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+# Cap heap so V8 doesn't OOM the box; tune to ~70% of RAM.
+Environment=NODE_OPTIONS=--max-old-space-size=700
+# Cache transformers models under the service user's home.
+Environment=TRANSFORMERS_CACHE=/home/ubuntu/.cache/transformers
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=embed-server
+
+[Install]
+WantedBy=multi-user.target
