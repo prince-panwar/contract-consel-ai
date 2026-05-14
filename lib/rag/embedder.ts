@@ -4,8 +4,11 @@ import { requireEmbedServiceConfig } from "../constants";
 // on Vercel. See that directory's README for deployment. The service returns
 // 384-dim MiniLM vectors.
 
-const EMBED_BATCH = 64;
-const FETCH_TIMEOUT_MS = 30_000;
+// Keep batches small so each HTTP call finishes well under the per-request
+// timeout. On a 1 OCPU Oracle box, ~24 sequences ≈ 2 internal batches of 16
+// ≈ 3-5 s, which leaves comfortable headroom for cross-region latency.
+const EMBED_BATCH = 24;
+const FETCH_TIMEOUT_MS = 90_000;
 
 async function postEmbed(texts: string[]): Promise<Float32Array[]> {
   if (texts.length === 0) return [];
@@ -24,6 +27,13 @@ async function postEmbed(texts: string[]): Promise<Float32Array[]> {
       body: JSON.stringify({ texts }),
       signal: controller.signal,
     });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `embed-server /embed timed out after ${FETCH_TIMEOUT_MS / 1000}s (${texts.length} chunks). Box may be overloaded.`,
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }

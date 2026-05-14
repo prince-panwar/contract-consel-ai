@@ -8,7 +8,9 @@ import { createReport } from "@/lib/db/reports";
 import { uploadPdf } from "@/lib/db/pdfBlob";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Embedding + PDF parse run on a remote Oracle box; allow plenty of headroom
+// for large contracts (each embed batch can take several seconds).
+export const maxDuration = 300;
 
 function jsonError(message: string, status: number) {
   return Response.json({ error: message }, { status });

@@ -3,7 +3,7 @@ import { requireEmbedServiceConfig } from "../constants";
 // PDF parsing happens on the self-hosted Node service (services/embed-server/)
 // so we can use pdf-parse without serverless-runtime workarounds.
 
-const FETCH_TIMEOUT_MS = 60_000;
+const FETCH_TIMEOUT_MS = 90_000;
 
 export interface PdfPage {
   pageNumber: number;
@@ -38,6 +38,13 @@ export async function extractPdf(buffer: Buffer): Promise<{
       body: form,
       signal: controller.signal,
     });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `embed-server /parse-pdf timed out after ${FETCH_TIMEOUT_MS / 1000}s. Box may be overloaded.`,
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
