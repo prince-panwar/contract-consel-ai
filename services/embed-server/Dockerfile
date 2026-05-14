@@ -47,9 +47,10 @@ RUN useradd --create-home --shell /bin/bash --uid 10001 app
 
 WORKDIR /app
 
-# Cap V8 heap to ~70% of 1 GB so the kernel doesn't OOM-kill us under load.
+# Cap V8 heap; ONNX runtime's native allocations are OUTSIDE this number,
+# so leaving ~500 MB for native tensors is more important than V8 heap.
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--max-old-space-size=700 \
+    NODE_OPTIONS=--max-old-space-size=400 \
     TRANSFORMERS_CACHE=/opt/model-cache \
     HOST=0.0.0.0
 

@@ -24,8 +24,10 @@ export async function warmup(): Promise<void> {
   await getExtractor();
 }
 
-// Internal batch size — keeps tensor allocations bounded on a 1 GB box.
-const INTERNAL_BATCH = 16;
+// Internal batch size — keeps peak tensor memory low enough that a 1 GB
+// E2.1.Micro doesn't start swapping mid-inference. Each item adds ~30 MB of
+// transient tensor memory; 8 keeps the spike well under 200 MB.
+const INTERNAL_BATCH = 8;
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
