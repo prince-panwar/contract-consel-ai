@@ -24,4 +24,6 @@ export const config = {
   maxConcurrency: intEnv("MAX_CONCURRENCY", 2),
   maxUploadBytes: intEnv("MAX_UPLOAD_BYTES", 40 * 1024 * 1024),
   modelId: process.env.MODEL_ID || "Xenova/all-MiniLM-L6-v2",
+  internalBatch: intEnv("INTERNAL_BATCH", 64),
+  fanout: intEnv("FANOUT", 4),
 };

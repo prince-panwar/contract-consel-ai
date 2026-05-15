@@ -24,17 +24,17 @@ export async function warmup(): Promise<void> {
   await getExtractor();
 }
 
-// Sized for the 4 OCPU / 24 GB Ampere A1 target. ONNX runtime parallelises
-// across the batch dimension across cores, so one fat call beats many small
-// ones. On the old 1 GB AMD micro you would lower this back to 8.
-const INTERNAL_BATCH = 64;
+// Texts per ONNX inference call. ONNX runtime parallelises across the batch
+// dimension across cores, so one fat call beats many small ones — but each
+// item costs ~30 MB transient RAM during the forward pass. Configure via the
+// INTERNAL_BATCH env var; default 64 fits the 4 OCPU / 24 GB Ampere A1 target.
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
   const extractor = await getExtractor();
   const out: number[][] = [];
-  for (let i = 0; i < texts.length; i += INTERNAL_BATCH) {
-    const slice = texts.slice(i, i + INTERNAL_BATCH);
+  for (let i = 0; i < texts.length; i += config.internalBatch) {
+    const slice = texts.slice(i, i + config.internalBatch);
     const tensor = await extractor(slice, { pooling: "mean", normalize: true });
     // tensor.tolist() returns number[][] — one row per input.
     const rows = tensor.tolist() as number[][];

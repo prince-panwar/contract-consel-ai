@@ -4,10 +4,19 @@ import { requireEmbedServiceConfig } from "../constants";
 // on Vercel. See that directory's README for deployment. The service returns
 // 384-dim MiniLM vectors.
 
-// Keep batches small so each HTTP call finishes well under the per-request
-// timeout. On a 1 OCPU Oracle box, ~24 sequences ≈ 2 internal batches of 16
-// ≈ 3-5 s, which leaves comfortable headroom for cross-region latency.
-const EMBED_BATCH = 24;
+// Chunks bundled into one /embed HTTP call. Default 24 is tuned for
+// cross-region Vercel → Oracle latency; bump via EMBED_BATCH env var when
+// pointing at a beefier embed server (e.g. local box via ngrok).
+function readBatchSize(): number {
+  const raw = process.env.EMBED_BATCH;
+  if (!raw) return 24;
+  const n = Number.parseInt(raw, 10);
+  if (Number.isNaN(n) || n <= 0) {
+    throw new Error(`Invalid integer for EMBED_BATCH: ${raw}`);
+  }
+  return n;
+}
+const EMBED_BATCH = readBatchSize();
 const FETCH_TIMEOUT_MS = 90_000;
 
 async function postEmbed(texts: string[]): Promise<Float32Array[]> {

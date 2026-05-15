@@ -3,12 +3,11 @@ import { downloadPdfBuffer, getReports } from "../db.js";
 import { extractPdfBuffer } from "../pdf.js";
 import { chunkContract } from "../chunker.js";
 import { embedTexts } from "../embedder.js";
+import { config } from "../config.js";
 
 interface ProcessBody {
   reportId: unknown;
 }
-
-const FANOUT = 4;
 
 function encodeEmbedding(vector: number[]): string {
   const f32 = new Float32Array(vector);
@@ -44,11 +43,10 @@ async function processInBackground(reportId: string): Promise<void> {
     }
     console.log(`[process-report] ${reportId} ${chunks.length} chunks`);
 
-    // Fan out chunks across FANOUT shards. With INTERNAL_BATCH=64 in the
-    // embedder this gives "batch-16-ish × 4 in parallel" on the Ampere A1's
-    // 4 OCPUs — keeps cache hot per core.
+    // Fan out chunks across config.fanout shards (FANOUT env var, default 4).
+    // Roughly one shard per CPU core keeps the model cache hot per core.
     const indexed = chunks.map((c, i) => ({ idx: i, text: c.text }));
-    const shards = partition(indexed, Math.min(FANOUT, indexed.length));
+    const shards = partition(indexed, Math.min(config.fanout, indexed.length));
     const shardResults = await Promise.all(
       shards.map(async (shard) => {
         const vectors = await embedTexts(shard.map((s) => s.text));
