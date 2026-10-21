@@ -1,48 +1,67 @@
-# ContractConsel
+# ContractConsel Platform
 
-**AI-assisted contract review for legal teams.** Upload a contract, list the terms you care about, and get every finding back with a verbatim quote and page citation you can check in one click — combining fast static search with LLM extraction, so you pay for model tokens only where they matter.
+**The secure, AI-assisted review platform behind ContractConsel's contract auditing service.**
 
-Self-hosted, multi-user, and built for confidential documents: contract data is encrypted at rest, personal identifiers are masked before any text reaches an LLM, and every access is audited.
+ContractConsel audits contracts for its clients. This repository contains the proprietary platform our review team uses to do that work: it reads each agreement, extracts the terms that matter, and backs every finding with a verbatim quote and page citation that a reviewer verifies before it reaches the client.
+
+> **Proprietary and confidential.** This is not open-source software and is not offered for self-hosting or licensing. Clients receive audited reports, not access to the platform. The repository is temporarily visible for review by prospective investors; no licence to use, copy, modify or distribute any part of it is granted. © 2026 ContractConsel. All rights reserved. See [LICENSE](LICENSE).
+
+---
+
+## Why it matters
+
+- **Speed.** Hours of manual clause-hunting become minutes: reviewers define what to look for, and the platform finds and cites it across the whole agreement.
+- **Accuracy you can check.** Every finding links to the exact passage and page; quotes are verified against the source automatically, and anything unverifiable is flagged for human review.
+- **Cost-efficient AI.** A hybrid of fast static search and targeted AI calls means the model only reads the passages that matter. In our tests, input tokens fall by 74–87% on 100–200-page agreements compared with reading the whole document.
+- **Built for confidential material.** Client contracts are encrypted at rest, personal identifiers are stripped before any text reaches an AI model, and every access is audited.
 
 ---
 
 ## Contents
 
-- [Features](#features)
+- [Security and privacy at a glance](#security-and-privacy-at-a-glance)
+- [Platform capabilities](#platform-capabilities)
 - [How it works](#how-it-works)
 - [Security and privacy](#security-and-privacy)
-- [Tech stack](#tech-stack)
-- [Getting started (local development)](#getting-started-local-development)
-- [Deployment](#deployment)
-- [Configuration](#configuration)
-- [Choosing an LLM](#choosing-an-llm)
-- [Operations](#operations)
-- [Project structure](#project-structure)
-- [Limitations](#limitations)
+- [Technology](#technology)
+- [Engineering quality](#engineering-quality)
+- [Roadmap](#roadmap)
+- [Internal development](#internal-development)
 
 ---
 
-## Features
+## Security and privacy at a glance
 
-**Review**
-- **Targeted extraction.** Define the data points you need (e.g. *Governing Law*, *Indemnity Cap*, *Termination for Convenience*), each with optional guidance and keywords. Quick-add presets cover common clauses.
-- **Two review modes.**
-  - *Focused* — keyword (BM25) and semantic search pick the passages relevant to each field; the LLM reads only those. Token cost stays roughly flat as documents grow (74–87% fewer input tokens on 100–200-page documents in our tests).
-  - *Thorough* — the LLM reads every page in fixed windows. Chosen automatically for short documents, where search can't narrow things down enough to save anything.
-- **Verified citations.** Every finding carries a verbatim quote and page number, checked against the source text. Unverifiable quotes are flagged *Needs review*.
-- **Static keyword search.** Instant, free search across the document (phrases, `terminat*` word forms) with page snippets; click to jump, or add a hit to the report as a finding.
-- **Ask AI to find.** Natural-language lookup ("assignment clause") using hybrid retrieval over the contract.
-- **Side-by-side PDF viewer** with highlighted quotes, page jump and lazy rendering for long documents.
-- **Edit, add and delete** findings; failed or interrupted runs resume from the last completed pass.
+Clients trust us with some of their most sensitive documents. The platform is designed around that trust:
 
-**Reporting**
-- **Exports in PDF, Word and Excel**, styled as a legal review memo: summary of findings, detailed findings with source citations, verification status, confidentiality markings and page numbering.
+- **Encrypted at rest** — client PDFs, extracted text, findings and filenames are AES-256-GCM encrypted before they reach our database. A leaked database or backup is unreadable without our key.
+- **Personal identifiers never sent to AI models** — emails, phone numbers, PAN, Aadhaar, GSTIN, IFSC, bank and card numbers, UPI IDs and passport numbers are replaced with placeholders before every model call and restored only inside our infrastructure.
+- **Minimal data egress** — document parsing, search and embeddings run on our own servers; only masked passages are sent to the AI provider.
+- **Need-to-know access** — each contract is visible only to the analyst who uploaded it and to colleagues an administrator explicitly grants access. Roles are enforced on the server for every request.
+- **Mandatory two-factor authentication** for every staff account, with single-use codes and throttled sign-in.
+- **Complete audit trail** — sign-ins, views, exports, edits, sharing and account changes are recorded for 400 days, without ever logging contract content.
+- **Instant revocation** — disabling an account or resetting its credentials ends its sessions on the very next request.
 
-**Team**
-- **Accounts and roles** — *viewer* (read, search, export), *reviewer* (also upload, extract, edit) and *admin* (everything, plus users, sharing, deletion and audit).
-- **Private by default.** Users see the contracts they uploaded; admins see all and share individual reports with specific people.
-- **Mandatory two-factor authentication** with any authenticator app (QR enrolment at first sign-in).
-- **Audit log** of sign-ins, views, exports, edits, sharing and user changes.
+---
+
+## Platform capabilities
+
+**Review workflow**
+- **Targeted extraction** of the terms each engagement needs (e.g. governing law, liability caps, termination rights, renewal terms), with reviewer guidance and keywords per term.
+- **Two review modes.** *Focused* — keyword (BM25) and semantic search select the relevant passages for each term and the model reads only those. *Thorough* — the model reads every page; chosen automatically for short agreements.
+- **Verified citations** with automatic quote matching against the source; unmatched quotes are flagged *Needs review*.
+- **Static keyword search** across the agreement with page snippets — instant and free of AI cost — plus natural-language "find" for clauses phrased unexpectedly.
+- **Side-by-side document viewer** with highlighted quotes and page navigation; reviewers edit, add or remove findings before delivery.
+
+**Client deliverables**
+- **Audit reports in PDF, Word and Excel**, styled as a legal review memorandum: summary of findings, detailed findings with source citations, verification status, confidentiality markings and page numbering.
+
+**Team and governance**
+- **Roles** — *viewer*, *reviewer* and *administrator* — with per-report sharing controlled by administrators.
+- **Administration console** for staff accounts, two-factor resets and the audit log.
+
+**Model flexibility**
+- A provider-agnostic AI layer lets us use Anthropic Claude, Google Gemini, OpenAI-compatible providers or locally hosted models, selected by configuration. Every provider sits behind the same privacy gateway.
 
 ---
 
@@ -50,180 +69,132 @@ Self-hosted, multi-user, and built for confidential documents: contract data is 
 
 ```mermaid
 flowchart LR
-    U[Browser] -->|HTTPS| C[Caddy<br/>TLS]
-    C --> A[Next.js app<br/>UI · API · extraction runner]
-    A -->|internal network| E[embed-server<br/>PDF parsing · embeddings]
-    A --> M[(MongoDB<br/>encrypted contract data)]
+    U[Analyst browser] -->|HTTPS| C[TLS gateway]
+    C --> A[Review application<br/>UI · API · extraction engine]
+    A -->|private network| E[Document service<br/>PDF parsing · embeddings]
+    A --> M[(Database<br/>encrypted client data)]
     E --> M
-    A -->|masked text only| L[LLM provider<br/>Claude · Gemini · OpenAI-compatible · Ollama]
+    A -->|masked text only| L[AI model provider]
 ```
 
-1. **Upload.** The PDF is encrypted and stored in MongoDB (GridFS). The embed server parses it into pages and section-aware passages and computes local MiniLM embeddings — no external API involved.
-2. **Configure.** The reviewer lists the fields to extract; live keyword hit counts show how well each keyword locates its clause.
-3. **Plan.** In focused mode, each field's passages are ranked by reciprocal-rank fusion of BM25 keyword scores and embedding similarity, then packed into as few LLM calls as fit a token budget.
-4. **Extract.** A background runner executes the passes with database leases, so a restart resumes where it stopped. Each call goes through a single LLM gateway that masks personal identifiers, requests schema-constrained JSON, and restores the originals in the result.
-5. **Verify.** Quotes are located in the source pages (whitespace- and table-tolerant) and the cited page is corrected if needed.
+1. **Intake.** An analyst uploads the client's agreement. It is encrypted before storage and visible only to that analyst until shared.
+2. **Processing.** Our document service extracts the text, splits it into section-aware passages and computes embeddings locally — no third party sees the document.
+3. **Scoping.** The analyst lists the terms to audit; live keyword hit counts show how well each term is located.
+4. **Planning.** For each term, passages are ranked by combining keyword relevance (BM25) with semantic similarity, then packed into as few AI calls as a token budget allows.
+5. **Extraction.** A resilient background engine runs the calls. Every call passes through a single privacy gateway that masks personal identifiers, requests structured output, and restores the originals on our side.
+6. **Verification and delivery.** Quotes are matched against the source, the analyst reviews and edits the findings, and the audit report is exported for the client.
 
 ---
 
 ## Security and privacy
 
-| Control | Implementation |
-|---|---|
-| Encryption at rest | AES-256-GCM, application-level, for PDFs, page text, passages, findings and filenames (`lib/crypto/content.ts`). Protects the database and its backups; the key never leaves the application host. |
-| PII masking | Emails, phone numbers, PAN, Aadhaar, GSTIN, IFSC, bank accounts, cards, UPI IDs and passport numbers are replaced with placeholders before any LLM call and restored afterwards (`lib/privacy/mask.ts`). Checksums (Luhn, Verhoeff) and labels keep false positives low; party names and amounts are deliberately left intact. |
-| Authentication | bcrypt passwords, signed HTTP-only session cookies, mandatory TOTP 2FA with replay protection, login throttling. |
-| Authorization | Every API route re-checks the user and role on each request; disabling a user, changing a password or resetting 2FA ends their sessions immediately. Reports the user may not see return 404. |
-| Audit | Append-only log retained for 400 days. Contract text, filenames and search terms are never logged. |
-| Transport | HTTPS via Caddy with automatic certificates; HSTS and hardened security headers; API responses are never cached. The embed server has no public port. |
+### What leaves our infrastructure
 
-> **Choose your LLM provider with your confidentiality obligations in mind.** Masking removes identifiers, but contract text is still sent to the provider. Use a paid tier that does not train on API data, or a local model via Ollama.
-
----
-
-## Tech stack
-
-- **App:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4
-- **Data:** MongoDB (Atlas or self-hosted), GridFS for PDFs
-- **Embed server:** Fastify, `pdf-parse`, `@xenova/transformers` (all-MiniLM-L6-v2, 384-dim, runs on CPU)
-- **LLM SDKs:** `@anthropic-ai/sdk`, `@google/genai`, `openai` (for OpenAI-compatible endpoints)
-- **Exports:** `pdfkit`, `docx`, `exceljs`
-- **Hosting:** Docker Compose with Caddy
-
----
-
-## Getting started (local development)
-
-**Prerequisites:** Node.js 20+, Docker, a MongoDB URI, and an LLM API key (or a local Ollama).
-
-```bash
-git clone <repo-url> contract-counsel-ai
-cd contract-counsel-ai
-npm install
-
-# 1. Configure
-cp .env.example .env.local
-cp services/embed-server/.env.example services/embed-server/.env
-#    Fill in MONGODB_URI, SESSION_SECRET, CONTENT_ENCRYPTION_KEY, LLM_* and
-#    EMBED_SERVICE_API_KEY (= API_KEY in the embed server's .env).
-#    The embed server also needs MONGODB_URI, MONGODB_DB and CONTENT_ENCRYPTION_KEY.
-
-# 2. First admin
-npm run hash-password 'a-strong-password'   # paste ADMIN_EMAIL / ADMIN_PASSWORD_HASH into .env.local
-
-# 3. Run the embed server (PDF parsing + embeddings) on :8080 (PORT in its .env)
-cd services/embed-server && docker compose up -d --build && cd ../..
-
-# 4. Run the app
-npm run dev    # http://localhost:3000
-```
-
-Sign in with the admin credentials, enrol your authenticator app when prompted, then add users under **Admin**.
-
----
-
-## Deployment
-
-The repository ships a production stack: Caddy (TLS) → Next.js app → embed server, all on one host.
-
-```bash
-cp .env.example .env                                  # app settings, incl. APP_DOMAIN
-cp services/embed-server/.env.example services/embed-server/.env
-docker compose up -d --build
-```
-
-Requirements:
-- A DNS **A record** for `APP_DOMAIN` pointing at the host, and ports **80/443** open (host firewall and any cloud security list). Caddy obtains and renews the certificate automatically.
-- About 6 GB of RAM headroom (embed server 4 GB limit, app 2 GB). 2+ CPU cores recommended.
-- The app runs as a **long-running Node server**: extraction is an in-process background job. Serverless platforms that freeze functions after the response (e.g. Vercel) are not supported.
-
-Update a running deployment:
-
-```bash
-docker compose up -d --build app            # or embed-server
-docker compose logs -f app
-```
-
-> Test changes on a staging pair first: run a second app/embed-server with `MONGODB_DB=<name>_staging` on a loopback port, so production users and data are untouched.
-
----
-
-## Configuration
-
-App (`.env`); see `.env.example` for generation commands.
-
-| Variable | Required | Description |
-|---|:-:|---|
-| `APP_DOMAIN` | prod | Public hostname served by Caddy |
-| `MONGODB_URI` / `MONGODB_DB` | ✓ | Database connection and name |
-| `EMBED_SERVICE_URL` / `EMBED_SERVICE_API_KEY` | ✓ | Embed server address and shared key (Compose sets the URL) |
-| `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` / `LLM_BASE_URL` | ✓ | LLM selection, see below |
-| `SESSION_SECRET` | ✓ | 32+ random characters for signing sessions |
-| `CONTENT_ENCRYPTION_KEY` | ✓ | 32-byte base64 AES key; **back it up** — losing it makes stored contracts unreadable |
-| `PRIVACY_MASK_PII` | | `true` (default) masks identifiers before LLM calls |
-| `REQUIRE_2FA` | | `true` (default) requires every account to enrol 2FA |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH` | first run | Creates the first admin when no users exist |
-
-Embed server (`services/embed-server/.env`): `API_KEY`, `MONGODB_URI`, `MONGODB_DB`, `CONTENT_ENCRYPTION_KEY` (same values as the app), plus tuning knobs `MAX_CONCURRENCY`, `INTERNAL_BATCH`, `FANOUT`, `MAX_UPLOAD_BYTES`. See [`services/embed-server/README.md`](services/embed-server/README.md).
-
----
-
-## Choosing an LLM
-
-The provider is configuration only — no code changes.
-
-| `LLM_PROVIDER` | Default model | Notes |
+| Destination | What is sent | What is never sent |
 |---|---|---|
-| `anthropic` | `claude-haiku-5-5` | Low cost; schema-constrained JSON output |
-| `gemini` | `gemini-2.5-flash` | Free tier available; use a billed project for client data |
-| `openai` | `gpt-4o-mini` | Any OpenAI-compatible API — set `LLM_BASE_URL` (DeepSeek, Groq, OpenRouter, llama.cpp, vLLM…) |
-| `ollama` | `llama3.1:8b` | Fully local; no key; needs a GPU for practical speed |
+| **AI model provider** (the only external processing) | Passages relevant to the requested terms, with personal identifiers replaced by placeholders; the term definitions | Whole documents, filenames, unmasked identifiers, staff or client account data, credentials |
+| **Database** | Encrypted documents, text, findings and filenames; staff accounts; audit log; embedding vectors | Plaintext contract content, plaintext passwords, encryption keys |
+| **Anything else** | — | Nothing: parsing, search and embeddings run on our servers, and framework telemetry is disabled |
 
-Override the model with `LLM_MODEL`. All providers pass through the same masking gateway (`lib/llm/client.ts`).
+### Controls
+
+| Area | What it does | Protects against |
+|---|---|---|
+| **Encryption at rest** | AES-256-GCM with a random IV per value, applied by the application before data is written | Database, snapshot or backup exposure |
+| **Identifier masking** | Detects emails, phone numbers, PAN, Aadhaar, GSTIN, IFSC, bank accounts, cards, UPI IDs and passport numbers (with checksum validation such as Luhn and Verhoeff) and replaces them before any AI call | Personal data being retained, logged or used for training by an AI provider |
+| **Authentication** | bcrypt-hashed passwords (12+ characters), signed HTTP-only secure cookies, mandatory TOTP two-factor authentication with single-use codes, forced password change for new accounts | Stolen or guessed passwords, replayed codes |
+| **Brute-force protection** | Sign-in and two-factor attempts are throttled | Password and code guessing |
+| **Authorization** | Every API request re-validates the account, role and session version; contracts are visible only to their uploader, explicitly granted colleagues and administrators; others receive "not found" | Privilege escalation; access to other engagements' documents |
+| **Session revocation** | Disabling an account, changing its password or role, or resetting its 2FA invalidates existing sessions immediately | Lingering access after staff changes or a lost device |
+| **Audit trail** | Sign-ins and failures, views, document opens, exports, searches, AI queries, extractions, edits, sharing and account administration, with user, time and IP; retained 400 days | Undetected misuse; supports client and regulatory accountability |
+| **Log hygiene** | Logs record identifiers and counts only — never contract text, filenames or search terms | Sensitive data spreading into logs |
+| **Network isolation** | Only the TLS gateway is publicly reachable; internal services run on a private network with no public ports | Direct access to internal services |
+| **Transport and browser hardening** | HTTPS everywhere with HSTS; anti-framing, no-sniff and strict referrer policies; API responses are never cached | Interception, clickjacking, sensitive data in caches |
+
+### Current practices
+
+- Two-factor authentication and identifier masking are enabled for all production use.
+- The production database account is least-privilege: it cannot drop or administer databases.
+- Only HTTPS (and administrative SSH) is exposed on production hosts.
+- Changes are validated on an isolated staging environment with its own database before reaching production.
+
+### Hardening roadmap
+
+We state current limits plainly:
+- Masking removes personal *identifiers*; party names, amounts and clause wording are still processed by the AI provider because the review depends on them. We are moving production AI traffic to provider agreements with **no training on our data and zero data retention**, and support fully local models for the most sensitive engagements.
+- Restricting database network access to production hosts only, and automated rotation of the content encryption key.
+- Embedding vectors and term definitions are stored unencrypted (they contain no contract text); encrypting them is planned.
+- Single sign-on (SAML/OIDC) and per-client data-retention policies.
+
+### Reporting a vulnerability
+
+Please report security concerns privately to the ContractConsel team rather than opening a public issue.
 
 ---
 
-## Operations
+## Technology
 
-| Task | Command |
+| Layer | Technology |
 |---|---|
-| Run tests (PII masking suite, incl. randomised and end-to-end leak tests) | `npm test` |
-| Type-check / lint | `npx tsc --noEmit` / `npm run lint` |
-| Hash a password for `ADMIN_PASSWORD_HASH` | `npm run hash-password '<password>'` |
-| Encrypt data stored before encryption was enabled (idempotent, backs up first) | `BACKUP_DIR=<dir> npm run encrypt-existing [-- --dry-run]` |
-| Recover a user locked out of 2FA | Admin → Users → **Reset 2FA** (they re-enrol at next sign-in) |
-
-Backups: rely on your MongoDB provider's backups; they contain only encrypted contract data. Keep `CONTENT_ENCRYPTION_KEY` and `SESSION_SECRET` in a password manager, separate from the database.
+| Application | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| Data | MongoDB with GridFS for documents; application-level AES-256-GCM encryption |
+| Document service | Fastify, pdf-parse, all-MiniLM-L6-v2 embeddings on CPU |
+| Search | BM25 keyword search with phrase and prefix matching, reciprocal-rank fusion with embeddings |
+| AI | Provider-agnostic gateway (Anthropic, Google, OpenAI-compatible, local models) with structured outputs |
+| Reports | pdfkit, docx, exceljs |
+| Infrastructure | Docker Compose, Caddy (automatic TLS) |
 
 ---
 
-## Project structure
+## Engineering quality
+
+- **Privacy test suite** — 95 automated tests for identifier masking, including 2,000-document randomised round-trips and an end-to-end test proving no identifiers reach the AI provider (`npm test`).
+- **Staging validation** — authentication, authorization and data-separation flows are verified end to end, through the API and in a real browser, on an isolated environment before release.
+- **Strict typing and linting** across the codebase.
+- **Resilience** — extraction and document processing resume automatically after a restart.
+
+---
+
+## Roadmap
+
+- **Review playbooks** — saved term sets per contract type (MSA, NDA, SaaS, lease, employment).
+- **Risk scoring against client standards** — each finding rated against the client's position with a written rationale.
+- **Missing-clause detection** — flag expected protections that are absent.
+- **OCR** for scanned agreements.
+- **Portfolio view and key-date tracking** — renewal and notice deadlines across a client's contract base.
+- **Version comparison** — clause-level differences between drafts.
+
+---
+
+## Internal development
+
+For the ContractConsel engineering team only.
+
+```bash
+npm install
+cp .env.example .env.local        # see comments in .env.example
+npm run dev                        # application on http://localhost:3000
+npm test                           # privacy test suite
+```
+
+Production runs with `docker compose up -d --build` (application, document service and TLS gateway). Configuration, secrets handling and operational procedures are documented internally. The document service has its own notes in [`services/embed-server/README.md`](services/embed-server/README.md).
 
 ```
-app/                     Next.js routes (pages + API)
-  api/auth, api/account  sign-in, 2FA, password
-  api/admin              users, audit log
-  api/reports            reports, extraction, search, find, export, sharing
-components/              UI (workbench, PDF viewer, admin, account…)
+app/                     routes: pages and API (auth, account, admin, reports)
+components/              user interface
 lib/
-  auth/                  users, sessions, TOTP, guards, rate limiting
+  auth/                  accounts, sessions, two-factor, authorization, throttling
   crypto/                encryption at rest
-  privacy/               PII masking
-  llm/                   provider-agnostic LLM gateway + prompts
-  search/                BM25 keyword search, hybrid ranking
-  extract/               planner, extractor, background runner, quote verification
-  export/                PDF / Word / Excel report builders
-  db/                    MongoDB access
-services/embed-server/   PDF parsing + embeddings service (Fastify)
-deploy/Caddyfile         TLS reverse proxy
+  privacy/               identifier masking
+  llm/                   AI provider gateway and prompts
+  search/                keyword search and hybrid ranking
+  extract/               planning, extraction engine, quote verification
+  export/                PDF, Word and Excel report builders
+  db/                    data access
+services/embed-server/   document processing service
 tests/                   automated tests
-bin/                     maintenance scripts
 ```
 
 ---
 
-## Limitations
-
-- **Scanned PDFs** (images without a text layer) are not yet supported; OCR is planned.
-- **Up to 400 pages** per document are read in thorough mode; very large documents should use focused mode.
-- Extraction output is an **aid to review, not legal advice** — findings must be confirmed against the source document.
+© 2026 ContractConsel. All rights reserved. Proprietary and confidential.
