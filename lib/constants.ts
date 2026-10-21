@@ -1,7 +1,5 @@
 export const ragConfig = {
-  // Gemini 2.5 Flash: 1M context, generous free-tier TPM/RPM, strong JSON mode.
-  // Flash-lite is cheaper/faster if quality is acceptable.
-  model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+  // LLM provider/model are env-driven; see lib/llm/client.ts.
   // Embeddings + PDF parsing live on a self-hosted Node service (Oracle).
   // See services/embed-server/. URL/key are required at runtime.
   embeddingServiceUrl: process.env.EMBED_SERVICE_URL ?? "",
@@ -23,12 +21,20 @@ export const ragConfig = {
   // Smaller windows = tighter LLM focus, denser recall. 20 pages ≈ 40-50k
   // input chars (~10-12k tokens), well within any tier.
   extractionWindowPages: 20,
-  // Raised to fit ~80-120 rows per window. Output at 16k tokens = ~64KB
-  // JSON, still fast to stream and parse.
-  extractionMaxOutputTokens: 16_384,
-  extractionPacingMs: 800,
+  // ~80-120 rows per window is ~16k tokens of JSON; the rest is headroom for
+  // adaptive thinking, which counts against max_tokens.
+  extractionMaxOutputTokens: 32_000,
   // Allow up to 400 pages / 20-page windows = 20 passes.
   extractionMaxPasses: 20,
+  // Focused mode: at most this many passages per field (keyword matches
+  // first; passages found only by meaning are capped lower), and the most
+  // excerpt text packed into one LLM call (~10k tokens).
+  focusedChunksPerField: 6,
+  focusedSemanticOnlyPerField: 3,
+  focusedPassChars: 40_000,
+  // If the focused selection would send at least this share of what reading
+  // every page costs, read every page instead: cheaper and complete.
+  focusedFallbackRatio: 0.8,
   // Export
   exportMaxRows: 500,
 } as const;

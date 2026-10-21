@@ -5,7 +5,7 @@ import { warmup } from "./embedder.js";
 import { Semaphore } from "./semaphore.js";
 import { registerEmbedRoute } from "./routes/embed.js";
 import { registerParsePdfRoute } from "./routes/parse-pdf.js";
-import { registerProcessReportRoute } from "./routes/process-report.js";
+import { registerProcessReportRoute, resumeStuckReports } from "./routes/process-report.js";
 
 async function main() {
   const app = Fastify({
@@ -41,6 +41,9 @@ async function main() {
   app.log.info("Model loaded.");
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
+  if (process.env.MONGODB_URI) {
+    resumeStuckReports().catch((err) => app.log.error({ err }, "resume of stuck reports failed"));
+  }
   app.log.info(`embed-server listening on :${config.port} (max concurrency ${config.maxConcurrency})`);
 }
 

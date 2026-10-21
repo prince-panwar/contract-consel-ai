@@ -1,4 +1,5 @@
 import { getReport } from "@/lib/db/reports";
+import { requireReport } from "@/lib/auth/guard";
 
 export const runtime = "nodejs";
 
@@ -6,8 +7,10 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
+  const g = await requireReport(request, id, "viewer");
+  if ("response" in g) return g.response;
   const report = await getReport(id);
   if (!report) {
     return Response.json({ error: "Report not found." }, { status: 404 });

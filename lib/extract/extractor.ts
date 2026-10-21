@@ -1,6 +1,5 @@
 import { nanoid } from "nanoid";
-import { Type } from "@google/genai";
-import { getGenAI } from "../llm/client";
+import { generateJson, type JsonRequest } from "../llm/client";
 import {
   FIND_DATAPOINT_SYSTEM_PROMPT,
   TARGETED_EXTRACTION_SYSTEM_PROMPT,
@@ -8,8 +7,10 @@ import {
   buildTargetedExtractionUserMessage,
 } from "../llm/prompts";
 import type {
+  Chunk,
   DataPoint,
   DataPointDefinition,
+  PlanPass,
   RetrievedChunk,
 } from "../rag/types";
 import type { PdfPage } from "../rag/pdf";
@@ -23,48 +24,51 @@ interface RawPoint {
   page?: unknown;
 }
 
+const POINT_PROPERTIES = {
+  value: { type: "string" },
+  quote: { type: "string" },
+  page: { type: "integer" },
+};
+
 function buildExtractionSchema(targetFields: DataPointDefinition[]) {
   return {
-    type: Type.OBJECT,
+    type: "object",
     properties: {
       dataPoints: {
-        type: Type.ARRAY,
+        type: "array",
         items: {
-          type: Type.OBJECT,
+          type: "object",
           properties: {
-            field: {
-              type: Type.STRING,
-              enum: targetFields.map((f) => f.name),
-            },
-            value: { type: Type.STRING },
-            quote: { type: Type.STRING },
-            page: { type: Type.INTEGER },
+            field: { type: "string", enum: targetFields.map((f) => f.name) },
+            ...POINT_PROPERTIES,
           },
           required: ["field", "value", "quote", "page"],
-          propertyOrdering: ["field", "value", "quote", "page"],
+          additionalProperties: false,
         },
       },
     },
     required: ["dataPoints"],
+    additionalProperties: false,
   };
 }
 
 const FIND_SCHEMA = {
-  type: Type.OBJECT,
+  type: "object",
   properties: {
     dataPoint: {
-      type: Type.OBJECT,
-      nullable: true,
-      properties: {
-        field: { type: Type.STRING },
-        value: { type: Type.STRING },
-        quote: { type: Type.STRING },
-        page: { type: Type.INTEGER },
-      },
-      required: ["field", "value", "quote", "page"],
+      anyOf: [
+        {
+          type: "object",
+          properties: { field: { type: "string" }, ...POINT_PROPERTIES },
+          required: ["field", "value", "quote", "page"],
+          additionalProperties: false,
+        },
+        { type: "null" },
+      ],
     },
   },
   required: ["dataPoint"],
+  additionalProperties: false,
 };
 
 function coerceRawPoint(
@@ -95,213 +99,127 @@ function dedupeKey(dp: Pick<DataPoint, "field" | "value">): string {
     .trim()}`;
 }
 
-function parseRetryAfterMs(err: unknown): number | null {
-  if (typeof err !== "object" || !err) return null;
-  const e = err as { message?: string };
-  const match = e.message?.match(/retry(?:[_ ]after|[- ]delay)?[\s:]+([\d.]+)s?/i);
-  if (match) {
-    const asNum = Number(match[1]);
-    if (Number.isFinite(asNum) && asNum > 0) return Math.ceil(asNum * 1000) + 500;
-  }
-  return null;
-}
-
-async function callGeminiJson<T>(args: {
-  systemInstruction: string;
-  userMessage: string;
-  schema: object;
-  model?: string;
-  maxOutputTokens?: number;
-}): Promise<T> {
-  const ai = getGenAI();
-  const maxAttempts = 4;
-  const requestTimeoutMs = 240_000;
-  let attempt = 0;
-  let lastErr: unknown;
-
-  while (attempt < maxAttempts) {
-    attempt += 1;
-    const started = Date.now();
-    try {
-      console.log(`[extract]     → generateContent (attempt ${attempt})`);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
-      let response;
-      try {
-        response = await ai.models.generateContent({
-          model: args.model ?? ragConfig.model,
-          contents: args.userMessage,
-          config: {
-            systemInstruction: args.systemInstruction,
-            temperature: 0.1,
-            responseMimeType: "application/json",
-            responseSchema: args.schema,
-            maxOutputTokens: args.maxOutputTokens ?? 32_768,
-            abortSignal: controller.signal,
-          },
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      const finishReason = response.candidates?.[0]?.finishReason;
-      const text = response.text ?? "";
-      console.log(
-        `[extract]     ← generateContent ok in ${elapsed}s — finish=${finishReason ?? "?"}, ${text.length} chars`,
-      );
-
-      if (!text.trim()) {
-        throw new Error(
-          `Gemini returned empty response (finish=${finishReason ?? "unknown"}). ` +
-            `This usually means MAX_TOKENS was hit or content was blocked by safety filters.`,
-        );
-      }
-      return JSON.parse(text) as T;
-    } catch (err) {
-      lastErr = err;
-      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      const status =
-        typeof err === "object" && err && "status" in err
-          ? Number((err as { status?: number }).status)
-          : 0;
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[extract]     ✕ generateContent failed in ${elapsed}s: ${msg}`);
-      const isRateLimit =
-        status === 429 ||
-        status === 503 ||
-        /quota|rate.?limit|429/i.test(msg);
-      if (!isRateLimit || attempt >= maxAttempts) throw err;
-      const waitMs = parseRetryAfterMs(err) ?? 2000 * attempt;
-      console.warn(
-        `[extract] Gemini rate-limited — waiting ${waitMs}ms (attempt ${attempt}/${maxAttempts})`,
-      );
-      await new Promise((r) => setTimeout(r, waitMs));
-    }
-  }
-  throw lastErr;
-}
-
-function sliceIntoWindows<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+async function callLlmJson<T>(req: JsonRequest): Promise<T> {
+  const started = Date.now();
+  console.log(`[extract]     → LLM call (effort=${req.effort})`);
+  const res = await generateJson<T>(req);
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  console.log(
+    `[extract]     ← ${res.model} ok in ${elapsed}s — stop=${res.stopReason}, in=${res.inputTokens ?? "?"} out=${res.outputTokens ?? "?"}`,
+  );
+  return res.data;
 }
 
 async function runOneExtractionPass(
   pages: PdfPage[],
   targetFields: DataPointDefinition[],
-  schema: object,
+  schema: { [key: string]: unknown },
+  excerpts: boolean,
 ): Promise<RawPoint[]> {
-  const userMessage = buildTargetedExtractionUserMessage(pages, targetFields);
-  const charCount = userMessage.length;
+  const userMessage = buildTargetedExtractionUserMessage(pages, targetFields, excerpts);
   const firstPage = pages[0]?.pageNumber;
   const lastPage = pages[pages.length - 1]?.pageNumber;
   console.log(
-    `[extract]   calling Gemini — pages ${firstPage}-${lastPage} (${pages.length}), ${charCount} chars (~${Math.round(charCount / 4)} tokens), targets=${targetFields.length}`,
+    `[extract]   calling LLM — pages ${firstPage}-${lastPage} (${pages.length}), ${userMessage.length} chars (~${Math.round(userMessage.length / 4)} tokens), targets=${targetFields.length}`,
   );
-
-  const parsed = await callGeminiJson<{ dataPoints: RawPoint[] }>({
-    systemInstruction: TARGETED_EXTRACTION_SYSTEM_PROMPT,
+  const parsed = await callLlmJson<{ dataPoints: RawPoint[] }>({
+    system: TARGETED_EXTRACTION_SYSTEM_PROMPT,
     userMessage,
     schema,
-    maxOutputTokens: ragConfig.extractionMaxOutputTokens,
+    maxTokens: ragConfig.extractionMaxOutputTokens,
+    effort: "medium",
   });
   return Array.isArray(parsed?.dataPoints) ? parsed.dataPoints : [];
 }
 
-export interface ExtractionPassResult {
-  pass: number;
-  totalPasses: number;
-  newPoints: DataPoint[];
-  firstPage: number;
-  lastPage: number;
+export function countPasses(pageCount: number): number {
+  return Math.min(
+    Math.ceil(pageCount / ragConfig.extractionWindowPages),
+    ragConfig.extractionMaxPasses,
+  );
 }
 
-export async function extractDataPoints(
+async function extractFromSections(
+  sections: PdfPage[],
   allPages: PdfPage[],
   targetFields: DataPointDefinition[],
-  onPass?: (result: ExtractionPassResult) => void | Promise<void>,
+  existing: DataPoint[],
+  excerpts: boolean,
+  label: string,
 ): Promise<DataPoint[]> {
-  if (allPages.length === 0) return [];
-  if (targetFields.length === 0) {
-    throw new Error("extractDataPoints requires at least one target field.");
-  }
-
+  if (targetFields.length === 0 || sections.length === 0) return [];
   const allowedFields = new Set(targetFields.map((f) => f.name));
-  const schema = buildExtractionSchema(targetFields);
+  const dedupe = new Set(existing.map(dedupeKey));
+  const raw = await runOneExtractionPass(
+    sections,
+    targetFields,
+    buildExtractionSchema(targetFields),
+    excerpts,
+  );
 
-  const collected: DataPoint[] = [];
-  const dedupe = new Set<string>();
-
-  // Fixed page-windows so output stays bounded per call. Multi-pass sweeps
-  // the whole document; per-pass failures don't abort the doc.
-  const windows = sliceIntoWindows(allPages, ragConfig.extractionWindowPages);
-  const totalPasses = Math.min(windows.length, ragConfig.extractionMaxPasses);
-
-  for (let pass = 1; pass <= totalPasses; pass++) {
-    const inputPages = windows[pass - 1];
-    if (!inputPages || inputPages.length === 0) break;
-
-    if (pass > 1 && ragConfig.extractionPacingMs > 0) {
-      await new Promise((r) => setTimeout(r, ragConfig.extractionPacingMs));
+  const newPoints: DataPoint[] = [];
+  let duplicates = 0;
+  let invalid = 0;
+  for (const r of raw) {
+    const coerced = coerceRawPoint(r, allowedFields);
+    if (!coerced) {
+      invalid += 1;
+      continue;
     }
-
-    let raw: RawPoint[] = [];
-    try {
-      raw = await runOneExtractionPass(inputPages, targetFields, schema);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[extract]   pass ${pass} failed:`, message);
+    const key = dedupeKey(coerced);
+    if (dedupe.has(key)) {
+      duplicates += 1;
+      continue;
     }
-
-    const newPoints: DataPoint[] = [];
-    let duplicates = 0;
-    let invalid = 0;
-    for (const r of raw) {
-      const coerced = coerceRawPoint(r, allowedFields);
-      if (!coerced) {
-        invalid += 1;
-        continue;
-      }
-      const key = dedupeKey(coerced);
-      if (dedupe.has(key)) {
-        duplicates += 1;
-        continue;
-      }
-
-      const located = locateQuote(coerced.quote, allPages, coerced.page);
-      const page = located?.page ?? coerced.page;
-      const verified = located?.verified ?? false;
-
-      const dp: DataPoint = {
-        id: nanoid(10),
-        field: coerced.field,
-        value: coerced.value,
-        quote: coerced.quote,
-        page,
-        verified,
-        source: "extracted",
-      };
-      newPoints.push(dp);
-      collected.push(dp);
-      dedupe.add(key);
-    }
-    console.log(
-      `[extract]   pass ${pass} raw=${raw.length} new=${newPoints.length} dup=${duplicates} invalid=${invalid}`,
-    );
-
-    if (onPass) {
-      await onPass({
-        pass,
-        totalPasses,
-        newPoints,
-        firstPage: inputPages[0].pageNumber,
-        lastPage: inputPages[inputPages.length - 1].pageNumber,
-      });
-    }
+    const located = locateQuote(coerced.quote, allPages, coerced.page);
+    newPoints.push({
+      id: nanoid(10),
+      field: coerced.field,
+      value: coerced.value,
+      quote: coerced.quote,
+      page: located?.page ?? coerced.page,
+      verified: located?.verified ?? false,
+      source: "extracted",
+    });
+    dedupe.add(key);
   }
+  console.log(
+    `[extract]   ${label} raw=${raw.length} new=${newPoints.length} dup=${duplicates} invalid=${invalid}`,
+  );
+  return newPoints;
+}
 
-  return collected;
+/** Thorough mode: one fixed page window (1-based pass) read in full. */
+export async function extractPass(
+  allPages: PdfPage[],
+  pass: number,
+  targetFields: DataPointDefinition[],
+  existing: DataPoint[],
+): Promise<DataPoint[]> {
+  const size = ragConfig.extractionWindowPages;
+  const window = allPages.slice((pass - 1) * size, pass * size);
+  return extractFromSections(window, allPages, targetFields, existing, false, `pass ${pass}`);
+}
+
+/**
+ * Focused mode: only the passages static + semantic search selected for
+ * these fields. Each excerpt is labelled with its page for citations.
+ */
+export async function extractFocusedPass(
+  allPages: PdfPage[],
+  chunks: Chunk[],
+  plan: PlanPass,
+  pass: number,
+  targetFields: DataPointDefinition[],
+  existing: DataPoint[],
+): Promise<DataPoint[]> {
+  const byId = new Map(chunks.map((c) => [c.id, c]));
+  const sections = plan.chunkIds.flatMap((id) => {
+    const c = byId.get(id);
+    return c ? [{ pageNumber: c.pageStart, text: c.text }] : [];
+  });
+  const fields = targetFields.filter((f) => plan.fields.includes(f.name));
+  return extractFromSections(sections, allPages, fields, existing, true, `focused pass ${pass}`);
 }
 
 export async function findSingleDataPoint(
@@ -310,11 +228,13 @@ export async function findSingleDataPoint(
   allPages: PdfPage[],
   filename: string,
 ): Promise<DataPoint | null> {
-  const parsed = await callGeminiJson<{ dataPoint: RawPoint | null }>({
-    systemInstruction: FIND_DATAPOINT_SYSTEM_PROMPT,
+  const parsed = await callLlmJson<{ dataPoint: RawPoint | null }>({
+    system: FIND_DATAPOINT_SYSTEM_PROMPT,
     userMessage: buildFindUserMessage(retrieved, query, filename),
     schema: FIND_SCHEMA,
-    maxOutputTokens: 1024,
+    // Headroom for adaptive thinking on top of the ~200-token JSON answer.
+    maxTokens: 8192,
+    effort: "low",
   });
 
   const raw = parsed?.dataPoint;

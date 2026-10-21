@@ -9,16 +9,14 @@ interface Props {
   onSelect: (dp: DataPoint) => void;
   onEdit: (id: string, patch: Partial<Pick<DataPoint, "field" | "value">>) => void;
   onDelete: (id: string) => void;
+  readOnly?: boolean;
 }
 
-export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props) {
+export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete, readOnly = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [fieldDraft, setFieldDraft] = useState(dp.field);
   const [valueDraft, setValueDraft] = useState(dp.value);
   const fieldRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setFieldDraft(dp.field), [dp.field]);
-  useEffect(() => setValueDraft(dp.value), [dp.value]);
 
   useEffect(() => {
     if (editing) fieldRef.current?.focus();
@@ -104,7 +102,7 @@ export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete }: Props
           >
             p.{dp.page}
           </span>
-          {!editing && (
+          {!editing && !readOnly && (
             <>
               <button
                 type="button"

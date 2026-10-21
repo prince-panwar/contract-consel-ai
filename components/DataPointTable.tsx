@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { DataPoint } from "@/lib/rag/types";
 import { DataPointRow } from "./DataPointRow";
 import { FindDataPoint } from "./FindDataPoint";
+import { KeywordSearch } from "./KeywordSearch";
+import { ScrollTopButton } from "./ScrollTopButton";
+import { useCurrentUser } from "./UserContext";
 
 interface Props {
   reportId: string;
@@ -13,6 +16,7 @@ interface Props {
   onEdit: (id: string, patch: Partial<Pick<DataPoint, "field" | "value">>) => void;
   onDelete: (id: string) => void;
   onAdd: (dp: DataPoint) => void;
+  onJump: (page: number, term: string) => void;
   extractionRunning?: boolean;
 }
 
@@ -24,9 +28,13 @@ export function DataPointTable({
   onEdit,
   onDelete,
   onAdd,
+  onJump,
   extractionRunning,
 }: Props) {
+  const { can } = useCurrentUser();
+  const canEdit = can("reviewer");
   const [filter, setFilter] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -42,9 +50,13 @@ export function DataPointTable({
   const verifiedCount = dataPoints.filter((d) => d.verified).length;
 
   return (
-    <div className="flex flex-col h-full">
+    // One scroll area for the whole panel: search results, AI find and the
+    // data points flow in a single column instead of nested scroll boxes.
+    <div className="relative h-full">
+    <div ref={listRef} className="h-full overflow-y-auto">
       <div className="px-4 py-3 border-b border-border-subtle space-y-3 bg-bg-secondary/40">
-        <FindDataPoint reportId={reportId} onAccept={onAdd} />
+        <KeywordSearch reportId={reportId} onJump={onJump} onAdd={canEdit ? onAdd : undefined} />
+        {canEdit && <FindDataPoint reportId={reportId} onAccept={onAdd} />}
         <div className="flex items-center gap-2">
           <input
             value={filter}
@@ -59,7 +71,7 @@ export function DataPointTable({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+      <div className="px-3 py-3 space-y-2">
         {extractionRunning && (
           <div className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 flex items-center gap-2 text-xs text-accent">
             <span className="inline-block w-2 h-2 rounded-full bg-accent animate-pulse" />
@@ -85,10 +97,13 @@ export function DataPointTable({
               onSelect={onSelect}
               onEdit={onEdit}
               onDelete={onDelete}
+              readOnly={!canEdit}
             />
           ))
         )}
       </div>
+    </div>
+    <ScrollTopButton target={listRef} threshold={400} />
     </div>
   );
 }

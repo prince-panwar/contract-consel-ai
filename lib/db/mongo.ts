@@ -21,7 +21,7 @@ function clientFactory(): MongoClient {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
     throw new Error(
-      "MONGODB_URI is not set. Add it to .env.local (see .env.local.example).",
+      "MONGODB_URI is not set. Add it to .env (see .env.example).",
     );
   }
   return new MongoClient(uri, {
@@ -48,9 +48,24 @@ export async function getDb(): Promise<Db> {
   return client.db(dbName);
 }
 
+const globalForIndexes = globalThis as unknown as { __ccIndexes?: Promise<unknown> };
+
 export async function getReports<T extends Document = Document>(): Promise<Collection<T>> {
   const db = await getDb();
-  return db.collection<T>(COLLECTIONS.reports);
+  const col = db.collection<T>(COLLECTIONS.reports);
+  // Without these every reportId lookup is a collection scan over multi-MB
+  // docs. createIndex is idempotent; run once per process.
+  globalForIndexes.__ccIndexes ??= Promise.all([
+    col.createIndex({ reportId: 1 }),
+    col.createIndex({ lastAccessAt: -1 }),
+    col.createIndex({ ownerUid: 1 }),
+    col.createIndex({ sharedWith: 1 }),
+  ]).catch((err) => {
+    globalForIndexes.__ccIndexes = undefined;
+    console.error("[mongo] createIndex failed:", err);
+  });
+  await globalForIndexes.__ccIndexes;
+  return col;
 }
 
 export async function getAdmins<T extends Document = Document>(): Promise<Collection<T>> {

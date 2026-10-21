@@ -10,3 +10,8 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   console.error("[process] unhandledRejection:", reason);
 });
+
+// Pick up extraction runs a restart or deploy interrupted.
+void import("./lib/extract/runner")
+  .then((m) => m.resumeInterruptedExtractions())
+  .catch((err) => console.error("[extract] resume on boot failed:", err));

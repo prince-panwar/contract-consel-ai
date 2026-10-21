@@ -12,7 +12,7 @@ async function main() {
   // thing so the env value contains only safe characters.
   const b64 = Buffer.from(hash, "utf8").toString("base64");
   console.log("");
-  console.log("Paste this line into .env.local exactly as shown:");
+  console.log("Paste this line into .env exactly as shown:");
   console.log("");
   console.log(`ADMIN_PASSWORD_HASH=${b64}`);
   console.log("");

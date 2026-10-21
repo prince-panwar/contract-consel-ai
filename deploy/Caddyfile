@@ -1,0 +1,16 @@
+# Public entrypoint. For a domain, Caddy obtains and renews a Let's Encrypt
+# certificate itself (DNS must point here, ports 80/443 open). For a bare IP
+# set CADDY_TLS_DIRECTIVE="tls internal": Caddy's own CA, browsers warn once.
+{
+	default_sni {$APP_DOMAIN}
+}
+
+{$APP_DOMAIN} {
+	{$CADDY_TLS_DIRECTIVE}
+	encode zstd gzip
+	# PDFs up to 40 MB plus multipart overhead.
+	request_body {
+		max_size 45MB
+	}
+	reverse_proxy app:3000
+}

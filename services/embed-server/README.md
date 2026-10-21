@@ -2,10 +2,13 @@
 
 Self-hosted embeddings + PDF parsing for `contract-counsel-ai`.
 
-The Vercel-deployed Next.js app calls this service for the two operations that don't fit in serverless:
+The Next.js app calls this service for PDF parsing and embeddings, which run locally on CPU (no external API):
 
+- `POST /process-report` — `{ reportId }` → 202; downloads the PDF from GridFS, parses, chunks and embeds it, and writes the result (encrypted) back to MongoDB. Queued one at a time; reports interrupted by a restart are resumed on boot.
 - `POST /embed` — `{ texts: string[] }` → `{ vectors: number[][] }` (384-dim, MiniLM)
 - `POST /parse-pdf` — multipart `file` → `{ pages: [{ pageNumber, text }], fullText }`
+
+> **Deployment:** in production this service runs inside the root `docker-compose.yml` stack on the private network, with no public port; see the [main README](../../README.md). The standalone VM instructions below are kept for reference.
 
 Designed to run on an Oracle Cloud Always Free **AMD VM.Standard.E2.1.Micro** (1 OCPU / 1 GB RAM / x86_64). Steady-state memory is ~600 MB; transient spikes during a PDF parse can hit ~900 MB. A 2 GB swap file is required.
 

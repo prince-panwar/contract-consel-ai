@@ -11,6 +11,7 @@ import {
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { ScrollTopButton } from "./ScrollTopButton";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs";
 
@@ -46,9 +47,35 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   const [width, setWidth] = useState<number>(700);
   const [activePage, setActivePage] = useState<number>(1);
   const [highlight, setHighlight] = useState<string | null>(null);
+  const [pageInput, setPageInput] = useState("");
+  // Pages near the viewport; others render as sized placeholders so long
+  // contracts don't mount hundreds of canvases and text layers at once.
+  const [nearby, setNearby] = useState<Set<number>>(() => new Set([1, 2, 3]));
+  const [pageRatio, setPageRatio] = useState(1.294); // US Letter until measured
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setNearby((prev) => {
+          const next = new Set(prev);
+          for (const e of entries) {
+            const n = Number((e.target as HTMLElement).dataset.page);
+            if (e.isIntersecting) next.add(n);
+            else next.delete(n);
+          }
+          return next;
+        });
+      },
+      { root: containerRef.current, rootMargin: "1500px 0px" },
+    );
+    observerRef.current = observer;
+    pageRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -62,30 +89,52 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
     return () => ro.disconnect();
   }, []);
 
+  // Scroll only the viewer pane. scrollIntoView would also scroll every
+  // ancestor (the window included) and shove the side panel around.
+  const goToPage = useCallback(
+    (page: number) => {
+      const clamped = Math.max(1, Math.min(numPages || 1, Math.floor(page)));
+      setActivePage(clamped);
+      const el = pageRefs.current.get(clamped);
+      const container = containerRef.current;
+      if (el && container) {
+        const header = container.querySelector<HTMLElement>("[data-viewer-header]");
+        const top =
+          el.getBoundingClientRect().top -
+          container.getBoundingClientRect().top +
+          container.scrollTop -
+          (header?.offsetHeight ?? 0) -
+          8;
+        container.scrollTo({ top, behavior: "smooth" });
+      }
+    },
+    [numPages],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
       jumpTo(page: number, quote?: string) {
-        const clamped = Math.max(1, Math.min(numPages || 1, Math.floor(page)));
-        setActivePage(clamped);
-        // Store the FULL normalized quote. The renderer will check whether
-        // each small text run is a substring of it (PDFs fracture text into
-        // single-word runs — matching run ⊂ quote is far more reliable
-        // than quote ⊂ run).
+        // Store the FULL normalized quote. The renderer checks whether each
+        // small text run is a substring of it (PDFs fracture text into
+        // single-word runs).
         setHighlight(quote ? normalize(quote) : null);
-        const el = pageRefs.current.get(clamped);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+        goToPage(page);
       },
     }),
-    [numPages],
+    [goToPage],
   );
 
   const handleLoadSuccess = useCallback(
-    ({ numPages: n }: { numPages: number }) => {
-      setNumPages(n);
-      onLoaded?.(n);
+    async (pdf: { numPages: number; getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number } }> }) => {
+      setNumPages(pdf.numPages);
+      onLoaded?.(pdf.numPages);
+      try {
+        const vp = (await pdf.getPage(1)).getViewport({ scale: 1 });
+        if (vp.width > 0) setPageRatio(vp.height / vp.width);
+      } catch {
+        /* keep the default ratio */
+      }
     },
     [onLoaded],
   );
@@ -112,15 +161,41 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
   );
 
   return (
+    <div className="relative h-full">
     <div
       ref={containerRef}
       className="relative h-full overflow-y-auto bg-bg-tertiary"
     >
-      <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-bg-secondary/90 backdrop-blur border-b border-border-subtle">
-        <span className="text-xs text-text-muted">
-          Page {activePage}
-          {numPages ? ` / ${numPages}` : ""}
-        </span>
+      <div data-viewer-header className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-bg-secondary/90 backdrop-blur border-b border-border-subtle">
+        <form
+          className="flex items-center gap-2 text-xs text-text-muted"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const n = Number.parseInt(pageInput, 10);
+            if (Number.isFinite(n)) goToPage(n);
+            setPageInput("");
+          }}
+        >
+          <span>
+            Page {activePage}
+            {numPages ? ` / ${numPages}` : ""}
+          </span>
+          <input
+            value={pageInput}
+            onChange={(e) => setPageInput(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            placeholder="#"
+            aria-label="Page number"
+            className="w-12 bg-bg-tertiary border border-border-visible focus:border-accent focus:outline-none rounded px-1.5 py-0.5 text-center text-foreground"
+          />
+          <button
+            type="submit"
+            disabled={!pageInput}
+            className="px-2 py-0.5 rounded border border-border-visible hover:border-accent hover:text-accent disabled:opacity-40"
+          >
+            Go to page
+          </button>
+        </form>
         {highlight && (
           <button
             onClick={() => setHighlight(null)}
@@ -147,8 +222,14 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
               <div
                 key={pageNum}
                 ref={(node) => {
-                  if (node) pageRefs.current.set(pageNum, node);
-                  else pageRefs.current.delete(pageNum);
+                  const prev = pageRefs.current.get(pageNum);
+                  if (prev && prev !== node) observerRef.current?.unobserve(prev);
+                  if (node) {
+                    pageRefs.current.set(pageNum, node);
+                    observerRef.current?.observe(node);
+                  } else {
+                    pageRefs.current.delete(pageNum);
+                  }
                 }}
                 data-page={pageNum}
                 className={`shadow-lg mb-3 ${
@@ -157,11 +238,17 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
                     : "ring-1 ring-border-subtle"
                 }`}
               >
-                <Page
-                  pageNumber={pageNum}
-                  width={width}
-                  customTextRenderer={renderTextLayer}
-                />
+                {nearby.has(pageNum) || activePage === pageNum ? (
+                  <Page
+                    pageNumber={pageNum}
+                    width={width}
+                    // Only the cited page gets highlights; short runs that
+                    // happen to occur in the quote would light up everywhere.
+                    customTextRenderer={activePage === pageNum ? renderTextLayer : undefined}
+                  />
+                ) : (
+                  <div style={{ width, height: Math.round(width * pageRatio) }} className="bg-white/90" />
+                )}
               </div>
             );
           })}
@@ -175,6 +262,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(function PdfViewer(
           padding: 0 1px;
         }
       `}</style>
+    </div>
+    <ScrollTopButton target={containerRef} />
     </div>
   );
 });

@@ -1,10 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { UploadDropzone, type UploadResult } from "./UploadDropzone";
+import { useCurrentUser } from "./UserContext";
 
 export function UploadLanding() {
   const router = useRouter();
+  const { user, can } = useCurrentUser();
+
+  // Viewers can't upload; their home is the list of reports shared with them.
+  useEffect(() => {
+    if (user && !can("reviewer")) router.replace("/history");
+  }, [user, can, router]);
+  if (!user || !can("reviewer")) return null;
 
   return (
     <main className="flex-1 flex items-center justify-center px-6 py-16">

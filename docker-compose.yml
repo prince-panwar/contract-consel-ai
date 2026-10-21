@@ -1,0 +1,54 @@
+# Full stack on one box:  docker compose up -d --build
+# Needs ./.env (app settings, see .env.local.example; APP_DOMAIN for Caddy)
+# and services/embed-server/.env. Only Caddy is reachable from outside.
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+      CADDY_TLS_DIRECTIVE: ${CADDY_TLS_DIRECTIVE:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  app:
+    build: .
+    image: contract-counsel-app:latest
+    restart: always
+    env_file: .env
+    environment:
+      # Embed server is reached over the private compose network only.
+      EMBED_SERVICE_URL: http://embed-server:8080
+    # Loopback only, for health checks / testing from the box itself.
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 2g
+    depends_on:
+      - embed-server
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  embed-server:
+    build: ./services/embed-server
+    image: embed-server:latest
+    restart: always
+    env_file: ./services/embed-server/.env
+    environment:
+      PORT: "8080"
+    # No published ports: not reachable from the internet.
+    mem_limit: 4g
+    memswap_limit: 6g
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

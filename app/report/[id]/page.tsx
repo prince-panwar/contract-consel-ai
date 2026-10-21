@@ -8,7 +8,7 @@ interface PageProps {
 export default async function ReportPage({ params }: PageProps) {
   const { id } = await params;
   return (
-    <AppShell>
+    <AppShell fixedHeight>
       <Workbench reportId={id} />
     </AppShell>
   );

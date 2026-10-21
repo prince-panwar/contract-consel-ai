@@ -8,10 +8,12 @@
     "start": "NODE_OPTIONS=--max-old-space-size=4096 next start",
     "lint": "eslint",
     "hash-password": "tsx bin/hash-password.ts",
-    "check-admin": "tsx bin/check-admin.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "encrypt-existing": "tsx bin/encrypt-existing.ts"
   },
   "dependencies": {
-    "@google/genai": "^1.50.0",
+    "@anthropic-ai/sdk": "^0.137.0",
+    "@google/genai": "^1.52.0",
     "bcryptjs": "^3.0.3",
     "docx": "^9.6.1",
     "exceljs": "^4.4.0",
@@ -19,6 +21,9 @@
     "mongodb": "^7.2.0",
     "nanoid": "^5.1.7",
     "next": "16.2.3",
+    "openai": "^7.39.0",
+    "pdfkit": "^0.20.2",
+    "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-pdf": "^10.4.1"
@@ -27,6 +32,8 @@
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

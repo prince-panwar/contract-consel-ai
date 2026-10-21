@@ -4,6 +4,32 @@ import { extractPdfBuffer } from "../pdf.js";
 import { chunkContract } from "../chunker.js";
 import { embedTexts } from "../embedder.js";
 import { config } from "../config.js";
+import { Semaphore } from "../semaphore.js";
+import { encryptText } from "../crypto.js";
+
+// One ingestion at a time: each job already fans out across all cores, and
+// two concurrent jobs can exceed the container's memory limit.
+const ingestQueue = new Semaphore(1);
+const queued = new Set<string>();
+
+function enqueue(reportId: string): void {
+  if (queued.has(reportId)) return;
+  queued.add(reportId);
+  void ingestQueue
+    .run(() => processInBackground(reportId))
+    .catch((err) => console.error(`[process-report] ${reportId} background task crashed:`, err))
+    .finally(() => queued.delete(reportId));
+}
+
+/** Re-queue uploads a restart interrupted (still "processing" in Mongo). */
+export async function resumeStuckReports(): Promise<void> {
+  const reports = await getReports();
+  const stuck = await reports
+    .find({ processingStatus: "processing" }, { projection: { reportId: 1 } })
+    .toArray();
+  if (stuck.length > 0) console.log(`[process-report] resuming ${stuck.length} stuck report(s)`);
+  for (const d of stuck) enqueue(String(d.reportId));
+}
 
 interface ProcessBody {
   reportId: unknown;
@@ -57,13 +83,18 @@ async function processInBackground(reportId: string): Promise<void> {
     merged.sort((a, b) => a.idx - b.idx);
     const embeddingsB64 = merged.map((m) => encodeEmbedding(m.vector));
 
+    // Contract text is encrypted at rest; embeddings (opaque vectors) are not.
     await reports.updateOne(
       { reportId },
       {
         $set: {
-          chunks,
+          chunks: chunks.map((c) => ({
+            ...c,
+            text: encryptText(c.text),
+            heading: c.heading === null ? null : encryptText(c.heading),
+          })),
           embeddingsB64,
-          pages,
+          pages: pages.map((p) => ({ ...p, text: encryptText(p.text) })),
           pageCount: pages.length,
           processingStatus: "ready",
           processingError: null,
@@ -105,16 +136,9 @@ export function registerProcessReportRoute(app: FastifyInstance): void {
     if (typeof reportId !== "string" || reportId.length === 0) {
       return reply.code(400).send({ error: "Body must be { reportId: string }" });
     }
-    // 202 first, work next. The background promise runs unconcurrent with
-    // /embed because both share the Node event loop, but we deliberately
-    // don't put process-report behind the query-side semaphore: a long
-    // ingestion shouldn't block fast query embeds.
+    // 202 first, work next. Ingestion has its own queue, separate from the
+    // query-side semaphore, so a long ingestion doesn't block query embeds.
     reply.code(202).send({ accepted: true, reportId });
-    void processInBackground(reportId).catch((err) => {
-      console.error(
-        `[process-report] ${reportId} background task crashed:`,
-        err,
-      );
-    });
+    enqueue(reportId);
   });
 }

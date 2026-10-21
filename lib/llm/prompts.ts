@@ -45,16 +45,22 @@ RULES
 export function buildTargetedExtractionUserMessage(
   pages: PdfPage[],
   targetFields: DataPointDefinition[],
+  excerpts = false,
 ): string {
   const targetList = targetFields
     .map((f, i) => {
       const desc = f.description?.trim();
+      const kw = f.keywords?.length ? ` (look for: ${f.keywords.join(", ")})` : "";
       return desc
-        ? `${i + 1}. "${f.name}" — ${desc}`
-        : `${i + 1}. "${f.name}"`;
+        ? `${i + 1}. "${f.name}" — ${desc}${kw}`
+        : `${i + 1}. "${f.name}"${kw}`;
     })
     .join("\n");
-  const docParts: string[] = ["DOCUMENT SECTION:"];
+  const docParts: string[] = [
+    excerpts
+      ? "DOCUMENT EXCERPTS (passages selected by search, not the whole contract; each is marked with the page it starts on):"
+      : "DOCUMENT SECTION:",
+  ];
   for (const p of pages) {
     docParts.push(`<<<PAGE ${p.pageNumber}>>>\n${p.text}`);
   }

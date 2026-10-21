@@ -8,9 +8,11 @@ import { DataPointTable } from "./DataPointTable";
 import { DefineDataPoints } from "./DefineDataPoints";
 import type { PdfViewerHandle } from "./PdfViewer";
 import { ExportMenu } from "./ExportMenu";
+import { useCurrentUser } from "./UserContext";
 import type {
   DataPoint,
   DataPointDefinition,
+  ExtractionMode,
   ExtractionStatus,
   ProcessingStatus,
 } from "@/lib/rag/types";
@@ -38,6 +40,7 @@ interface ReportState {
   processingStatus: ProcessingStatus;
   processingError: string | null;
   extractionStatus: ExtractionStatus;
+  extractionMode: ExtractionMode;
   extractionPassesDone: number;
   extractionPassesTotal: number;
   extractionError: string | null;
@@ -72,6 +75,7 @@ interface Props {
 
 export function Workbench({ reportId }: Props) {
   const router = useRouter();
+  const { user, can } = useCurrentUser();
   const [report, setReport] = useState<ReportState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -228,6 +232,11 @@ export function Workbench({ reportId }: Props) {
     flashToast,
   ]);
 
+  const handleJump = useCallback((page: number, term: string) => {
+    setSelectedId(null);
+    viewerRef.current?.jumpTo(page, term);
+  }, []);
+
   const handleSelect = useCallback((dp: DataPoint) => {
     setSelectedId(dp.id);
     viewerRef.current?.jumpTo(dp.page, dp.quote);
@@ -235,10 +244,11 @@ export function Workbench({ reportId }: Props) {
 
   const handleEdit = useCallback(
     async (id: string, patch: Partial<Pick<DataPoint, "field" | "value">>) => {
-      if (!report) return;
-      const prev = report.dataPoints;
-      const optimistic = prev.map((d) => (d.id === id ? { ...d, ...patch } : d));
-      setReport({ ...report, dataPoints: optimistic });
+      const before = report?.dataPoints.find((d) => d.id === id);
+      if (!before) return;
+      setReport((r) =>
+        r ? { ...r, dataPoints: r.dataPoints.map((d) => (d.id === id ? { ...d, ...patch } : d)) } : r,
+      );
       try {
         const res = await fetch(
           `/api/reports/${encodeURIComponent(reportId)}/datapoints`,
@@ -250,17 +260,21 @@ export function Workbench({ reportId }: Props) {
         );
         if (!res.ok) throw new Error();
       } catch {
-        setReport({ ...report, dataPoints: prev });
+        setReport((r) =>
+          r ? { ...r, dataPoints: r.dataPoints.map((d) => (d.id === id ? before : d)) } : r,
+        );
+        flashToast("Could not save the edit.", "error");
       }
     },
-    [report, reportId],
+    [report, reportId, flashToast],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      if (!report) return;
-      const prev = report.dataPoints;
-      setReport({ ...report, dataPoints: prev.filter((d) => d.id !== id) });
+      const index = report?.dataPoints.findIndex((d) => d.id === id) ?? -1;
+      if (!report || index < 0) return;
+      const removed = report.dataPoints[index];
+      setReport((r) => (r ? { ...r, dataPoints: r.dataPoints.filter((d) => d.id !== id) } : r));
       if (selectedId === id) setSelectedId(null);
       try {
         const res = await fetch(
@@ -269,38 +283,76 @@ export function Workbench({ reportId }: Props) {
         );
         if (!res.ok && res.status !== 404) throw new Error();
       } catch {
-        setReport({ ...report, dataPoints: prev });
+        setReport((r) => {
+          if (!r || r.dataPoints.some((d) => d.id === id)) return r;
+          const dataPoints = [...r.dataPoints];
+          dataPoints.splice(Math.min(index, dataPoints.length), 0, removed);
+          return { ...r, dataPoints };
+        });
+        flashToast("Could not delete the data point.", "error");
       }
     },
-    [report, reportId, selectedId],
+    [report, reportId, selectedId, flashToast],
   );
 
   const handleAdd = useCallback(
     (dp: DataPoint) => {
-      if (!report) return;
-      setReport({ ...report, dataPoints: [...report.dataPoints, dp] });
+      setReport((r) =>
+        r && !r.dataPoints.some((d) => d.id === dp.id)
+          ? { ...r, dataPoints: [...r.dataPoints, dp] }
+          : r,
+      );
       setSelectedId(dp.id);
       viewerRef.current?.jumpTo(dp.page, dp.quote);
     },
-    [report],
+    [],
   );
 
   const handleDeleteReport = useCallback(async () => {
     if (!confirm("Delete this report permanently?")) return;
     try {
-      await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { method: "DELETE" });
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 404) throw new Error();
     } catch {
-      /* ignore */
+      flashToast("Could not delete the report.", "error");
+      return;
     }
     router.push("/history");
     router.refresh();
-  }, [reportId, router]);
+  }, [reportId, router, flashToast]);
 
-  const handleExtractionStarted = useCallback(() => {
+  // Failed runs keep the points found so far; resume continues from the
+  // first unfinished pass. "Change fields" goes back to the configure step.
+  const handleResume = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/reports/${encodeURIComponent(reportId)}/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume: true }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.error || `Resume failed (${res.status})`);
+      setReport((r) => (r ? { ...r, extractionStatus: "running", extractionError: null } : r));
+    } catch (err) {
+      flashToast(err instanceof Error ? err.message : "Resume failed.", "error");
+    }
+  }, [reportId, flashToast]);
+
+  const handleReconfigure = useCallback(() => {
+    if (!confirm("Start over with a new list of fields? Current data points will be replaced.")) {
+      return;
+    }
+    setReport((r) => (r ? { ...r, extractionStatus: "awaiting-config" } : r));
+  }, []);
+
+  const handleExtractionStarted = useCallback((mode: ExtractionMode) => {
     setReport((prev) =>
       prev
         ? {
             ...prev,
+            extractionMode: mode,
             extractionStatus: "pending",
             extractionPassesDone: 0,
             extractionStartedAt: Date.now(),
@@ -330,7 +382,7 @@ export function Workbench({ reportId }: Props) {
     );
   }
 
-  if (!report) {
+  if (!report || !user) {
     return (
       <main className="flex-1 flex items-center justify-center text-sm text-text-muted">
         Loading report…
@@ -379,6 +431,14 @@ export function Workbench({ reportId }: Props) {
     );
   }
 
+  if (report.extractionStatus === "awaiting-config" && !can("reviewer")) {
+    return (
+      <main className="flex-1 flex items-center justify-center px-6 py-16">
+        <p className="text-sm text-text-muted">This report hasn&apos;t been reviewed yet.</p>
+      </main>
+    );
+  }
+
   if (report.extractionStatus === "awaiting-config") {
     return (
       <DefineDataPoints
@@ -413,18 +473,28 @@ export function Workbench({ reportId }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {!extractionRunning && can("reviewer") && (
+            <button
+              onClick={handleReconfigure}
+              className="text-sm text-text-muted hover:text-accent border border-border-visible hover:border-accent px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Change fields
+            </button>
+          )}
           <ExportMenu
             reportId={report.reportId}
             filename={report.filename}
             dataPoints={report.dataPoints}
             disabled={extractionRunning}
           />
+          {can("admin") && (
           <button
             onClick={handleDeleteReport}
             className="text-sm text-text-muted hover:text-danger border border-border-visible hover:border-danger px-3 py-1.5 rounded-lg transition-colors"
           >
             Delete
           </button>
+          )}
         </div>
       </div>
 
@@ -436,11 +506,13 @@ export function Workbench({ reportId }: Props) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">
-              Scanning your document
+              {report.extractionMode === "focused"
+                ? "Reading the passages search found"
+                : "Scanning every page"}
               {report.extractionPassesTotal > 0 && (
                 <>
                   {" "}
-                  — pass{" "}
+                  — {report.extractionMode === "focused" ? "batch" : "pass"}{" "}
                   <span className="text-accent">
                     {Math.min(
                       report.extractionPassesDone + 1,
@@ -464,12 +536,21 @@ export function Workbench({ reportId }: Props) {
 
       {extractionError && (
         <div className="bg-danger/10 border-b border-danger/40 text-danger text-sm px-6 py-2.5 shrink-0">
-          <strong className="font-medium">Extraction failed:</strong> {extractionError}
+          <strong className="font-medium">Extraction stopped:</strong> {extractionError}
+          {report.extractionPassesDone < report.extractionPassesTotal && can("reviewer") && (
+            <button
+              onClick={handleResume}
+              className="ml-3 underline underline-offset-4 hover:text-foreground"
+            >
+              Resume from {report.extractionMode === "focused" ? "batch" : "pass"}{" "}
+              {report.extractionPassesDone + 1}
+            </button>
+          )}
         </div>
       )}
 
       <div className="flex-1 grid grid-cols-[minmax(340px,42%)_1fr] min-h-0">
-        <section className="border-r border-border-subtle min-h-0">
+        <section className="border-r border-border-subtle min-h-0 overflow-hidden">
           <DataPointTable
             reportId={report.reportId}
             dataPoints={report.dataPoints}
@@ -478,10 +559,11 @@ export function Workbench({ reportId }: Props) {
             onEdit={handleEdit}
             onDelete={handleDelete}
             onAdd={handleAdd}
+            onJump={handleJump}
             extractionRunning={extractionRunning}
           />
         </section>
-        <section className="min-h-0">
+        <section className="min-h-0 overflow-hidden">
           {pdfState === "loaded" && pdfSrc ? (
             <PdfViewer ref={viewerRef} src={pdfSrc} />
           ) : pdfState === "error-retry" ? (

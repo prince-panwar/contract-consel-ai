@@ -1,4 +1,5 @@
 import { GridFSBucket, MongoClient, type Db } from "mongodb";
+import { decryptBuffer } from "./crypto.js";
 
 const REPORTS_COLLECTION = "reports";
 const PDF_BUCKET = "pdfs";
@@ -44,11 +45,12 @@ export async function downloadPdfBuffer(reportId: string): Promise<Buffer> {
     throw new Error(`No PDF found in GridFS for reportId=${reportId}`);
   }
   const file = files[0];
-  return new Promise<Buffer>((resolve, reject) => {
+  const raw = await new Promise<Buffer>((resolve, reject) => {
     const stream = bucket.openDownloadStream(file._id);
     const parts: Buffer[] = [];
     stream.on("data", (chunk: Buffer) => parts.push(chunk));
     stream.on("error", reject);
     stream.on("end", () => resolve(Buffer.concat(parts)));
   });
+  return file.metadata?.encrypted ? decryptBuffer(raw) : raw;
 }

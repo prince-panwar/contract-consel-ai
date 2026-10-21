@@ -8,6 +8,8 @@ import {
 } from "@/lib/db/reports";
 import type { DataPoint } from "@/lib/rag/types";
 import { locateQuote } from "@/lib/extract/verify";
+import { requireReport } from "@/lib/auth/guard";
+import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 
@@ -21,7 +23,9 @@ function jsonError(message: string, status: number) {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
-  const report = await getReport(id);
+  const g = await requireReport(request, id, "reviewer");
+  if ("response" in g) return g.response;
+  const report = await getReport(id, ["pages"]);
   if (!report) return jsonError("Report not found.", 404);
 
   let body: {
@@ -58,11 +62,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const result = await addDataPoint(id, dp);
   if (!result) return jsonError("Report not found.", 404);
+  await audit(request, g.user, "datapoint.added", { reportId: id, detail: { id: dp.id, source: dp.source } });
   return Response.json({ dataPoint: result });
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const g = await requireReport(request, id, "reviewer");
+  if ("response" in g) return g.response;
 
   let body: {
     id?: string;
@@ -77,14 +84,18 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   const updated = await patchDataPoint(id, body.id, body.patch);
   if (!updated) return jsonError("Data point not found.", 404);
+  await audit(request, g.user, "datapoint.edited", { reportId: id, detail: { id: body.id } });
   return Response.json({ dataPoint: updated });
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const g = await requireReport(request, id, "reviewer");
+  if ("response" in g) return g.response;
   const dpId = request.nextUrl.searchParams.get("id");
   if (!dpId) return jsonError("Missing 'id' query param.", 400);
   const ok = await removeDataPoint(id, dpId);
   if (!ok) return jsonError("Data point not found.", 404);
+  await audit(request, g.user, "datapoint.deleted", { reportId: id, detail: { id: dpId } });
   return new Response(null, { status: 204 });
 }

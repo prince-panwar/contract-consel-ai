@@ -1,19 +1,22 @@
 import { jwtVerify, SignJWT } from "jose";
+import type { Role } from "./users";
 
 const COOKIE_NAME = "cc_admin";
 const ALG = "HS256";
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
+const MFA_TICKET_TTL_SEC = 5 * 60; // between password and 2FA code
 
-export interface AdminSessionPayload {
-  sub: string; // admin email
+export interface SessionPayload {
+  uid: string;
+  email: string;
+  role: Role;
+  tv: number; // user's tokenVersion when issued
 }
 
 function getSecret(): Uint8Array {
   const raw = process.env.SESSION_SECRET;
   if (!raw) {
-    throw new Error(
-      "SESSION_SECRET is not set. Add it to .env.local (see .env.local.example).",
-    );
+    throw new Error("SESSION_SECRET is not set. Add it to .env (see .env.example).");
   }
   if (raw.length < 32) {
     throw new Error("SESSION_SECRET must be at least 32 characters.");
@@ -21,23 +24,50 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(raw);
 }
 
-export async function encryptSession(payload: AdminSessionPayload): Promise<string> {
-  return new SignJWT({ sub: payload.sub })
+export async function encryptSession(p: SessionPayload): Promise<string> {
+  return new SignJWT({ typ: "session", email: p.email, role: p.role, tv: p.tv })
     .setProtectedHeader({ alg: ALG })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_SEC}s`)
-    .setSubject(payload.sub)
+    .setSubject(p.uid)
     .sign(getSecret());
 }
 
-export async function decryptSession(
-  token: string | undefined,
-): Promise<AdminSessionPayload | null> {
+/**
+ * Signature/expiry check only (used by the proxy for page routes). API routes
+ * additionally re-check the user in the database via requireUser().
+ */
+export async function decryptSession(token: string | undefined): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, getSecret(), { algorithms: [ALG] });
-    if (typeof payload.sub !== "string") return null;
-    return { sub: payload.sub };
+    if (payload.typ !== "session" || typeof payload.sub !== "string") return null;
+    return {
+      uid: payload.sub,
+      email: String(payload.email ?? ""),
+      role: payload.role as Role,
+      tv: Number(payload.tv ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Short-lived proof that the password step passed; exchanged for a session with a 2FA code. */
+export async function signMfaTicket(uid: string, tv: number): Promise<string> {
+  return new SignJWT({ typ: "mfa", tv })
+    .setProtectedHeader({ alg: ALG })
+    .setIssuedAt()
+    .setExpirationTime(`${MFA_TICKET_TTL_SEC}s`)
+    .setSubject(uid)
+    .sign(getSecret());
+}
+
+export async function verifyMfaTicket(ticket: string): Promise<{ uid: string; tv: number } | null> {
+  try {
+    const { payload } = await jwtVerify(ticket, getSecret(), { algorithms: [ALG] });
+    if (payload.typ !== "mfa" || typeof payload.sub !== "string") return null;
+    return { uid: payload.sub, tv: Number(payload.tv ?? 0) };
   } catch {
     return null;
   }

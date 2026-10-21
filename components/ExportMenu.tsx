@@ -3,6 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { DataPoint } from "@/lib/rag/types";
 
+type Format = "pdf" | "docx" | "xlsx";
+
+const OPTIONS: Array<{ format: Format; label: string }> = [
+  { format: "pdf", label: "PDF report (.pdf)" },
+  { format: "docx", label: "Word report (.docx)" },
+  { format: "xlsx", label: "Excel workbook (.xlsx)" },
+];
+
 interface Props {
   reportId: string;
   filename: string;
@@ -12,7 +20,7 @@ interface Props {
 
 export function ExportMenu({ reportId, filename, dataPoints, disabled }: Props) {
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"xlsx" | "docx" | null>(null);
+  const [busy, setBusy] = useState<Format | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,7 +31,7 @@ export function ExportMenu({ reportId, filename, dataPoints, disabled }: Props) 
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const doExport = async (format: "xlsx" | "docx") => {
+  const doExport = async (format: Format) => {
     if (busy || dataPoints.length === 0) return;
     setBusy(format);
     try {
@@ -41,11 +49,12 @@ export function ExportMenu({ reportId, filename, dataPoints, disabled }: Props) 
       const a = document.createElement("a");
       const base = filename.replace(/\.[a-z0-9]+$/i, "").replace(/[^A-Za-z0-9_-]+/g, "_");
       a.href = url;
-      a.download = `${base || "contract"}-data-points.${format}`;
+      a.download = `${base || "contract"}-contract-review.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      // Revoking synchronously can cancel the download in Firefox/Safari.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Export failed");
     } finally {
@@ -67,21 +76,19 @@ export function ExportMenu({ reportId, filename, dataPoints, disabled }: Props) 
         </svg>
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-border-visible bg-bg-secondary shadow-xl z-20 overflow-hidden">
-          <button
-            onClick={() => doExport("xlsx")}
-            disabled={busy !== null}
-            className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-tertiary hover:text-foreground disabled:opacity-50"
-          >
-            {busy === "xlsx" ? "Building…" : "Excel (.xlsx)"}
-          </button>
-          <button
-            onClick={() => doExport("docx")}
-            disabled={busy !== null}
-            className="w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-tertiary hover:text-foreground disabled:opacity-50 border-t border-border-subtle"
-          >
-            {busy === "docx" ? "Building…" : "Word (.docx)"}
-          </button>
+        <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-border-visible bg-bg-secondary shadow-xl z-20 overflow-hidden">
+          {OPTIONS.map((o, i) => (
+            <button
+              key={o.format}
+              onClick={() => doExport(o.format)}
+              disabled={busy !== null}
+              className={`w-full text-left px-3 py-2 text-sm text-text-secondary hover:bg-bg-tertiary hover:text-foreground disabled:opacity-50 ${
+                i > 0 ? "border-t border-border-subtle" : ""
+              }`}
+            >
+              {busy === o.format ? "Building…" : o.label}
+            </button>
+          ))}
         </div>
       )}
     </div>

@@ -28,6 +28,18 @@ export interface DataPoint {
 export interface DataPointDefinition {
   name: string;
   description?: string;
+  // Words/phrases to locate the clause with static search (see lib/search).
+  keywords?: string[];
+}
+
+// focused: static + semantic search picks the passages the LLM reads.
+// thorough: the LLM reads every page in fixed windows.
+export type ExtractionMode = "focused" | "thorough";
+
+/** One LLM call in a focused run: these fields, read from these chunks. */
+export interface PlanPass {
+  fields: string[];
+  chunkIds: string[];
 }
 
 export type ExtractionStatus =
@@ -51,12 +63,17 @@ export interface Report {
   processingStatus: ProcessingStatus;
   processingError: string | null;
   extractionStatus: ExtractionStatus;
+  extractionMode: ExtractionMode;
+  extractionPlan: PlanPass[];
   extractionPassesDone: number;
   extractionPassesTotal: number;
   extractionError: string | null;
   extractionStartedAt: number | null;
   createdAt: number;
   lastAccessAt: number;
+  // Visibility: the uploader, plus users an admin shared it with. Admins see all.
+  ownerUid: string | null;
+  sharedWith: string[];
 }
 
 export interface RetrievedChunk extends Chunk {
@@ -70,7 +87,10 @@ export interface ReportSummary {
   pageCount: number;
   dataPointCount: number;
   targetFieldCount: number;
+  processingStatus: ProcessingStatus;
   extractionStatus: ExtractionStatus;
   createdAt: number;
   lastAccessAt: number;
+  ownerUid: string | null;
+  sharedWith: string[];
 }
