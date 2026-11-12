@@ -6,3 +6,7 @@ node_modules
 services
 deploy
 *.md
+# Benchmark and tests import services/ (excluded above); the image needs neither.
+bin/eval-cuad*
+bin/claude-cli-llm.ts
+tests
