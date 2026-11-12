@@ -23,7 +23,9 @@ export const config = {
   apiKey: required("API_KEY"),
   maxConcurrency: intEnv("MAX_CONCURRENCY", 2),
   maxUploadBytes: intEnv("MAX_UPLOAD_BYTES", 40 * 1024 * 1024),
-  modelId: process.env.MODEL_ID || "Xenova/all-MiniLM-L6-v2",
+  // bge-small: same 384 dims as the old all-MiniLM-L6-v2, but reads 512 tokens
+  // (MiniLM: 256) and ranks retrieval queries markedly better.
+  modelId: process.env.MODEL_ID || "Xenova/bge-small-en-v1.5",
   internalBatch: intEnv("INTERNAL_BATCH", 64),
   fanout: intEnv("FANOUT", 4),
 };

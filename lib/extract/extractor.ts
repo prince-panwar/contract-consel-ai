@@ -115,8 +115,9 @@ async function runOneExtractionPass(
   targetFields: DataPointDefinition[],
   schema: { [key: string]: unknown },
   excerpts: boolean,
+  definitions?: string,
 ): Promise<RawPoint[]> {
-  const userMessage = buildTargetedExtractionUserMessage(pages, targetFields, excerpts);
+  const userMessage = buildTargetedExtractionUserMessage(pages, targetFields, excerpts, definitions);
   const firstPage = pages[0]?.pageNumber;
   const lastPage = pages[pages.length - 1]?.pageNumber;
   console.log(
@@ -146,6 +147,7 @@ async function extractFromSections(
   existing: DataPoint[],
   excerpts: boolean,
   label: string,
+  definitions?: string,
 ): Promise<DataPoint[]> {
   if (targetFields.length === 0 || sections.length === 0) return [];
   const allowedFields = new Set(targetFields.map((f) => f.name));
@@ -155,6 +157,7 @@ async function extractFromSections(
     targetFields,
     buildExtractionSchema(targetFields),
     excerpts,
+    definitions,
   );
 
   const newPoints: DataPoint[] = [];
@@ -189,7 +192,31 @@ async function extractFromSections(
   return newPoints;
 }
 
-/** Thorough mode: one fixed page window (1-based pass) read in full. */
+/**
+ * Thorough mode: read pages pageStart..pageEnd in full. `definitions` is the
+ * contract's defined terms, passed when the window doesn't contain them.
+ */
+export async function extractWindow(
+  allPages: PdfPage[],
+  pageStart: number,
+  pageEnd: number,
+  targetFields: DataPointDefinition[],
+  existing: DataPoint[],
+  definitions?: string,
+): Promise<DataPoint[]> {
+  const window = allPages.filter((p) => p.pageNumber >= pageStart && p.pageNumber <= pageEnd);
+  return extractFromSections(
+    window,
+    allPages,
+    targetFields,
+    existing,
+    false,
+    `pages ${pageStart}-${pageEnd}`,
+    definitions,
+  );
+}
+
+/** Legacy thorough plan (runs started before page windows): fixed 20-page windows by pass number. */
 export async function extractPass(
   allPages: PdfPage[],
   pass: number,
@@ -212,6 +239,7 @@ export async function extractFocusedPass(
   pass: number,
   targetFields: DataPointDefinition[],
   existing: DataPoint[],
+  definitions?: string,
 ): Promise<DataPoint[]> {
   const byId = new Map(chunks.map((c) => [c.id, c]));
   const sections = plan.chunkIds.flatMap((id) => {
@@ -219,7 +247,15 @@ export async function extractFocusedPass(
     return c ? [{ pageNumber: c.pageStart, text: c.text }] : [];
   });
   const fields = targetFields.filter((f) => plan.fields.includes(f.name));
-  return extractFromSections(sections, allPages, fields, existing, true, `focused pass ${pass}`);
+  return extractFromSections(
+    sections,
+    allPages,
+    fields,
+    existing,
+    true,
+    `focused pass ${pass}`,
+    definitions,
+  );
 }
 
 export async function findSingleDataPoint(

@@ -30,7 +30,7 @@ RUN npm run build
 # directory so the runtime stage can copy it deterministically.
 ENV TRANSFORMERS_CACHE=/opt/model-cache
 RUN mkdir -p $TRANSFORMERS_CACHE && \
-    node -e "const t=require('@xenova/transformers'); t.env.cacheDir='/opt/model-cache'; t.pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2').then(()=>console.log('model cached'))"
+    node -e "const t=require('@xenova/transformers'); t.env.cacheDir='/opt/model-cache'; t.pipeline('feature-extraction',process.env.MODEL_ID||'Xenova/bge-small-en-v1.5').then(()=>console.log('model cached'))"
 
 # Drop devDependencies for the runtime copy.
 RUN --mount=type=cache,target=/root/.npm npm prune --omit=dev
@@ -40,7 +40,8 @@ RUN --mount=type=cache,target=/root/.npm npm prune --omit=dev
 FROM node:${NODE_VERSION}-slim AS runtime
 
 # Tini for clean signal handling under PID 1.
-RUN apt-get update && apt-get install -y --no-install-recommends tini curl && rm -rf /var/lib/apt/lists/*
+# poppler-utils + tesseract: OCR for scanned contracts (src/ocr.ts).
+RUN apt-get update && apt-get install -y --no-install-recommends tini curl poppler-utils tesseract-ocr tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
 
 # Non-root user.
 RUN useradd --create-home --shell /bin/bash --uid 10001 app

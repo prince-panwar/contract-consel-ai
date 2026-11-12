@@ -10,10 +10,12 @@ Return a single JSON object: {"dataPoints":[{"field": string, "value": string, "
 
 RULES
 - "field" MUST exactly match one of the names in the user's target list (case-sensitive). Never invent fields outside the list.
-- For each target field, search the section carefully — including synonyms, defined terms, and section headings — before deciding it is absent. Use the optional descriptions the user provides as guidance for what they mean.
-- Emit AT MOST ONE row per target field per call. If the section addresses a field in multiple places, pick the most specific or governing instance.
-- If a target field has multiple distinct sub-points (e.g. "Termination" with for-cause and for-convenience), prefer the umbrella answer for this section; the user can ask follow-up questions later.
-- If the section is silent on a target field, OMIT it entirely. Do not return rows with empty values or "Not specified".
+- For each target field, search the text carefully — including synonyms, defined terms, and section headings — before deciding it is absent. Use the optional descriptions the user provides as guidance for what they mean.
+- Emit AT MOST ONE row per target field per call. If the text addresses a field in several places, cite the GOVERNING provision: an amendment over the original, a "notwithstanding" clause over the general rule, the operative clause over a recital, summary or heading. Mention material exceptions or the other places in "value".
+- Read capitalised terms the way the contract defines them. When the user provides CONTRACT DEFINITIONS, use them to interpret the text (e.g. what "Term", "Territory" or "Products" covers).
+- Never cite the table of contents, a heading on its own, or a definition that merely names a concept, when an operative clause exists.
+- Only report a field when the text actually provides it. Do not infer a clause from silence or from general law: no restriction stated means the field is absent, not "none".
+- If the text is silent on a target field, OMIT it entirely. Do not return rows with empty values or "Not specified".
 
 VALUES
 - "value": concise plain-English answer, or verbatim figure/date/name when specificity matters.
@@ -46,6 +48,7 @@ export function buildTargetedExtractionUserMessage(
   pages: PdfPage[],
   targetFields: DataPointDefinition[],
   excerpts = false,
+  definitions?: string,
 ): string {
   const targetList = targetFields
     .map((f, i) => {
@@ -64,7 +67,10 @@ export function buildTargetedExtractionUserMessage(
   for (const p of pages) {
     docParts.push(`<<<PAGE ${p.pageNumber}>>>\n${p.text}`);
   }
-  return `TARGET DATA POINTS (look for each one diligently — return rows only for those genuinely covered by this section):\n${targetList}\n\n${docParts.join("\n\n")}`;
+  const defs = definitions
+    ? `CONTRACT DEFINITIONS (from elsewhere in the same contract, for interpreting the text below; you may quote them, citing their page):\n${definitions}\n\n`
+    : "";
+  return `TARGET DATA POINTS (look for each one diligently — return rows only for those genuinely covered by this section):\n${targetList}\n\n${defs}${docParts.join("\n\n")}`;
 }
 
 export function buildFindUserMessage(

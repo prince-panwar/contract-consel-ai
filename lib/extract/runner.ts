@@ -1,11 +1,12 @@
 import {
   claimNextPass,
+  completeFinalPass,
   completePass,
   failPass,
   getReport,
   releaseInterruptedExtractions,
 } from "../db/reports";
-import { extractFocusedPass, extractPass } from "./extractor";
+import { finishExtraction, runPlannedPass } from "./engine";
 
 // Longer than any single LLM call (240s timeout x retries), so a live pass is
 // never stolen; a crashed process's lease is cleared on restart instead.
@@ -35,19 +36,23 @@ async function loop(reportId: string): Promise<void> {
     const claim = await claimNextPass(reportId, LEASE_MS, false);
     if (!claim) break;
     try {
-      const plan = report.extractionPlan[claim.pass - 1];
-      const newPoints =
-        report.extractionMode === "focused" && plan
-          ? await extractFocusedPass(
-              report.pages,
-              report.chunks,
-              plan,
-              claim.pass,
-              claim.targetFields,
-              claim.dataPoints,
-            )
-          : await extractPass(report.pages, claim.pass, claim.targetFields, claim.dataPoints);
-      await completePass(reportId, claim.pass, claim.passesTotal, newPoints);
+      const newPoints = await runPlannedPass(
+        { pages: report.pages, chunks: report.chunks },
+        { mode: report.extractionMode, plan: report.extractionPlan },
+        claim.pass,
+        claim.targetFields,
+        claim.dataPoints,
+      );
+      if (claim.pass >= claim.passesTotal) {
+        const final = await finishExtraction(
+          report.pages,
+          claim.targetFields,
+          claim.dataPoints.concat(newPoints),
+        );
+        await completeFinalPass(reportId, claim.pass, final);
+      } else {
+        await completePass(reportId, claim.pass, claim.passesTotal, newPoints);
+      }
       console.log(
         `[extract] ${reportId} pass ${claim.pass}/${claim.passesTotal} done, +${newPoints.length} points`,
       );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import type { DataPoint } from "@/lib/rag/types";
+import type { DataPoint, DataPointDefinition } from "@/lib/rag/types";
 import { DataPointRow } from "./DataPointRow";
 import { FindDataPoint } from "./FindDataPoint";
 import { KeywordSearch } from "./KeywordSearch";
@@ -18,6 +18,10 @@ interface Props {
   onAdd: (dp: DataPoint) => void;
   onJump: (page: number, term: string) => void;
   extractionRunning?: boolean;
+  /** Requested fields; those without any data point are listed as not located. */
+  targetFields?: DataPointDefinition[];
+  /** True when the AI read every page (not only search excerpts). */
+  readInFull?: boolean;
 }
 
 export function DataPointTable({
@@ -30,6 +34,8 @@ export function DataPointTable({
   onAdd,
   onJump,
   extractionRunning,
+  targetFields = [],
+  readInFull = false,
 }: Props) {
   const { can } = useCurrentUser();
   const canEdit = can("reviewer");
@@ -48,6 +54,13 @@ export function DataPointTable({
   }, [dataPoints, filter]);
 
   const verifiedCount = dataPoints.filter((d) => d.verified).length;
+
+  // Requested fields with no answer. Shown so a reviewer can tell "not in the
+  // contract" (or not found) from a row that silently went missing.
+  const notLocated = useMemo(() => {
+    const found = new Set(dataPoints.map((d) => d.field));
+    return targetFields.filter((f) => !found.has(f.name));
+  }, [dataPoints, targetFields]);
 
   return (
     // One scroll area for the whole panel: search results, AI find and the
@@ -100,6 +113,26 @@ export function DataPointTable({
               readOnly={!canEdit}
             />
           ))
+        )}
+        {!extractionRunning && dataPoints.length > 0 && notLocated.length > 0 && (
+          <details className="rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs">
+            <summary className="cursor-pointer text-text-muted">
+              Not located ({notLocated.length}) — {readInFull ? "every page was read" : "only search matches were read"}
+            </summary>
+            <p className="mt-2 text-text-muted">
+              {readInFull
+                ? "The AI read the whole contract and found no clause for these fields. That usually means the contract does not cover them; use AI find or keyword search above to double-check."
+                : "The AI read only the passages search selected. These fields may still be in the contract: try AI find above, or re-run the extraction in Thorough mode."}
+            </p>
+            <ul className="mt-2 space-y-1">
+              {notLocated.map((f) => (
+                <li key={f.name} className="text-foreground">
+                  {f.name}
+                  {f.description && <span className="text-text-muted"> — {f.description}</span>}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </div>
     </div>

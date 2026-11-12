@@ -20,6 +20,7 @@ interface ReportDoc {
   pageCount: number;
   chunks: Chunk[];
   embeddingsB64: string[];
+  embeddingModel?: string;
   pages: PdfPage[];
   targetFields: DataPointDefinition[];
   dataPoints: DataPoint[];
@@ -77,6 +78,10 @@ function decodeEmbeddings(b64: string[]): Float32Array[] {
   });
 }
 
+function encodeEmbedding(v: Float32Array): string {
+  return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString("base64");
+}
+
 function toReport(doc: Partial<ReportDoc> & Pick<ReportDoc, "reportId">): Report {
   return {
     reportId: doc.reportId,
@@ -84,6 +89,7 @@ function toReport(doc: Partial<ReportDoc> & Pick<ReportDoc, "reportId">): Report
     pageCount: doc.pageCount ?? 0,
     chunks: openChunks(doc.chunks),
     embeddings: decodeEmbeddings(doc.embeddingsB64 ?? []),
+    embeddingModel: doc.embeddingModel,
     pages: openPages(doc.pages),
     targetFields: doc.targetFields ?? [],
     dataPoints: (doc.dataPoints ?? []).map(openPoint),
@@ -373,6 +379,36 @@ export async function completePass(
     },
   } as unknown as UpdateFilter<ReportDoc>;
   await reports.updateOne({ reportId, extractionPassesDone: pass - 1 }, update);
+}
+
+/**
+ * The last pass: store the run's FINAL data points (after reconciling), which
+ * replace the per-pass rows, and mark the extraction done.
+ */
+export async function completeFinalPass(
+  reportId: string,
+  pass: number,
+  finalPoints: DataPoint[],
+): Promise<void> {
+  const reports = await getReports();
+  await reports.updateOne({ reportId, extractionPassesDone: pass - 1 }, {
+    $set: {
+      dataPoints: finalPoints.map(sealPoint),
+      extractionPassesDone: pass,
+      extractionLeaseUntil: null,
+      extractionStatus: "done",
+      lastAccessAt: Date.now(),
+    },
+  } as unknown as UpdateFilter<ReportDoc>);
+}
+
+/** Store chunk embeddings re-made with a newer model (see lib/rag/vectors.ts). */
+export async function saveEmbeddings(reportId: string, vectors: Float32Array[], model: string): Promise<void> {
+  const reports = await getReports();
+  await reports.updateOne(
+    { reportId },
+    { $set: { embeddingsB64: vectors.map(encodeEmbedding), embeddingModel: model } },
+  );
 }
 
 export async function failPass(reportId: string, message: string): Promise<void> {

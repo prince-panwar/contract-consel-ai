@@ -281,7 +281,7 @@ export function DefineDataPoints({ reportId, filename, pageCount, initial, onSta
       <fieldset className="mt-5 grid gap-2 sm:grid-cols-2">
         {(
           [
-            ["focused", "Focused", "Search first; the AI reads only the matching passages. Fast and low cost. Short contracts are read in full automatically."],
+            ["focused", "Focused", "Search first; the AI reads only the matching passages. Contracts up to about 120 pages are read in full automatically; longer ones are searched first."],
             ["thorough", "Thorough", "The AI reads every page. Slower and uses more tokens; use when nothing may be missed."],
           ] as const
         ).map(([value, label, hint]) => (
