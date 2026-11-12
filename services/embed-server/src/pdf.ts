@@ -1,10 +1,7 @@
 import pdfParse from "pdf-parse";
 import type { PdfPage } from "./chunker.js";
-
-interface PdfTextItem {
-  str: string;
-  hasEOL?: boolean;
-}
+import { assemblePageText, type PdfTextItem } from "./text-layout.js";
+import { needsOcr, ocrPages } from "./ocr.js";
 
 interface PdfTextContent {
   items: PdfTextItem[];
@@ -30,17 +27,13 @@ export async function extractPdfBuffer(buffer: Buffer): Promise<{
   fullText: string;
 }> {
   const collected: string[] = [];
-  const parsed = await pdfParse(buffer, {
+  await pdfParse(buffer, {
     pagerender: async (pageData: PdfPageData) => {
       const content = await pageData.getTextContent({
         normalizeWhitespace: true,
         disableCombineTextItems: false,
       });
-      let pageText = "";
-      for (const item of content.items) {
-        pageText += item.str;
-        if (item.hasEOL) pageText += "\n";
-      }
+      const pageText = assemblePageText(content.items);
       collected.push(pageText);
       return pageText;
     },
@@ -50,8 +43,18 @@ export async function extractPdfBuffer(buffer: Buffer): Promise<{
     pageNumber: i + 1,
     text: normalize(t),
   }));
-  const fullText = parsed.text
-    ? normalize(parsed.text)
-    : pages.map((p) => p.text).join("\n\n");
+
+  // Scanned pages have no text layer: read them with OCR.
+  const scanned = pages.filter((p) => needsOcr(p.text)).map((p) => p.pageNumber);
+  if (scanned.length > 0) {
+    const ocr = await ocrPages(buffer, scanned);
+    for (const p of pages) {
+      const text = ocr.get(p.pageNumber);
+      if (text) p.text = normalize(text);
+    }
+    console.log(`[pdf] ${scanned.length} page(s) without a text layer, ${ocr.size} recovered by OCR`);
+  }
+  // Built from the pages so it includes OCR'd text and the line/space fixes.
+  const fullText = pages.map((p) => p.text).join("\n\n");
   return { pages, fullText };
 }

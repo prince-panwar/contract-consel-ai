@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { ragConfig } from "@/lib/constants";
-import { embedOne } from "@/lib/rag/embedder";
-import { getReport } from "@/lib/db/reports";
+import { queryAndChunkVectors } from "@/lib/rag/vectors";
+import { getReport, saveEmbeddings } from "@/lib/db/reports";
 import { dot } from "@/lib/rag/retriever";
 import { hybridRank } from "@/lib/search/keywords";
 import { findSingleDataPoint } from "@/lib/extract/extractor";
@@ -42,8 +42,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!query) return jsonError("'query' is required.", 400);
 
   let qEmbedding: Float32Array;
+  let chunkVectors: Float32Array[];
   try {
-    qEmbedding = await embedOne(query);
+    const v = await queryAndChunkVectors(report, [query], (vectors, model) =>
+      saveEmbeddings(id, vectors, model),
+    );
+    qEmbedding = v.queryVectors[0];
+    chunkVectors = v.chunkVectors;
   } catch (err) {
     const message = err instanceof Error ? err.message : "embedding failed";
     return jsonError(`Query embedding failed: ${message}`, 500);
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // term ("indemnif*") and a paraphrase both find the clause.
   const terms = [query, ...query.split(/\s+/).filter((w) => w.length >= 4)];
   const semantic = new Map(
-    report.chunks.map((c, i) => [c.id, dot(qEmbedding, report.embeddings[i])]),
+    report.chunks.map((c, i) => [c.id, dot(qEmbedding, chunkVectors[i])]),
   );
   const byId = new Map(report.chunks.map((c) => [c.id, c]));
   const retrieved = hybridRank(report.chunks, terms, semantic, ragConfig.topK).flatMap((r) => {

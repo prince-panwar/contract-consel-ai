@@ -18,6 +18,8 @@ export interface DataPoint {
   page: number;
   verified: boolean;
   source: "extracted" | "user-added" | "ai-found";
+  /** Set when several readings disagreed and the reconcile step chose this one. */
+  reconciled?: boolean;
 }
 
 /**
@@ -40,6 +42,9 @@ export type ExtractionMode = "focused" | "thorough";
 export interface PlanPass {
   fields: string[];
   chunkIds: string[];
+  /** Thorough runs: the page window this call reads in full (1-based, inclusive). */
+  pageStart?: number;
+  pageEnd?: number;
 }
 
 export type ExtractionStatus =
@@ -57,6 +62,8 @@ export interface Report {
   pageCount: number;
   chunks: Chunk[];
   embeddings: Float32Array[];
+  /** Model that produced `embeddings`; unset for reports embedded before it was recorded (MiniLM). */
+  embeddingModel?: string;
   pages: PdfPage[];
   targetFields: DataPointDefinition[];
   dataPoints: DataPoint[];

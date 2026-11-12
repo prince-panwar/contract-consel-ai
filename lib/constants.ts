@@ -1,15 +1,20 @@
+function intFromEnv(name: string, fallback: number): number {
+  const n = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 export const ragConfig = {
   // LLM provider/model are env-driven; see lib/llm/client.ts.
   // Embeddings + PDF parsing live on a self-hosted Node service (Oracle).
   // See services/embed-server/. URL/key are required at runtime.
   embeddingServiceUrl: process.env.EMBED_SERVICE_URL ?? "",
   embeddingServiceApiKey: process.env.EMBED_SERVICE_API_KEY ?? "",
-  // all-MiniLM-L6-v2 produces 384-dim sentence embeddings.
+  // bge-small-en-v1.5 (was all-MiniLM-L6-v2) produces 384-dim embeddings.
   embeddingDim: 384,
-  // MiniLM-L6 maxes at 256 input tokens (~1000 chars). Larger chunks were
-  // silently truncated and burned tokenizer cycles on text the model never saw.
-  chunkTargetChars: 1000,
-  chunkOverlapChars: 160,
+  // bge-small reads 512 input tokens (~2000 chars); keep chunks under that so
+  // nothing is silently truncated. Must match services/embed-server/src/chunker.ts.
+  chunkTargetChars: 1600,
+  chunkOverlapChars: 200,
   topK: 6,
   maxContextChars: 8000,
   maxPdfBytes: 40 * 1024 * 1024,
@@ -35,6 +40,14 @@ export const ragConfig = {
   // If the focused selection would send at least this share of what reading
   // every page costs, read every page instead: cheaper and complete.
   focusedFallbackRatio: 0.8,
+  // A contract up to this much text is read in ONE call, so the model sees
+  // definitions, amendments and cross-references together (~80k tokens;
+  // fits every supported provider's context). Longer ones are read in
+  // windows of extractionWindowChars, each with the definitions attached.
+  fullContextChars: intFromEnv("EXTRACTION_FULL_CONTEXT_CHARS", 320_000),
+  extractionWindowChars: intFromEnv("EXTRACTION_WINDOW_CHARS", 160_000),
+  // Defined terms sent with every partial read (window or excerpts).
+  definitionsMaxChars: 12_000,
   // Export
   exportMaxRows: 500,
 } as const;

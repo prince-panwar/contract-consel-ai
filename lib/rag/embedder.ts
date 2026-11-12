@@ -1,8 +1,10 @@
 import { requireEmbedServiceConfig } from "../constants";
 
-// Embeddings live on a self-hosted Node service (services/embed-server/), not
-// on Vercel. See that directory's README for deployment. The service returns
-// 384-dim MiniLM vectors.
+// Embeddings live on a self-hosted Node service (services/embed-server/).
+// It returns 384-dim vectors plus the id of the model that made them, so
+// reports embedded with an older model can be re-embedded (lib/rag/vectors.ts).
+
+export type EmbedKind = "query" | "passage";
 
 // Chunks bundled into one /embed HTTP call. Default 24 is tuned for
 // cross-region Vercel → Oracle latency; bump via EMBED_BATCH env var when
@@ -19,8 +21,11 @@ function readBatchSize(): number {
 const EMBED_BATCH = readBatchSize();
 const FETCH_TIMEOUT_MS = 90_000;
 
-async function postEmbed(texts: string[]): Promise<Float32Array[]> {
-  if (texts.length === 0) return [];
+async function postEmbed(
+  texts: string[],
+  kind: EmbedKind,
+): Promise<{ vectors: Float32Array[]; model: string }> {
+  if (texts.length === 0) return { vectors: [], model: "" };
   const { url, apiKey } = requireEmbedServiceConfig();
 
   const controller = new AbortController();
@@ -33,7 +38,7 @@ async function postEmbed(texts: string[]): Promise<Float32Array[]> {
         "content-type": "application/json",
         "x-api-key": apiKey,
       },
-      body: JSON.stringify({ texts }),
+      body: JSON.stringify({ texts, kind }),
       signal: controller.signal,
     });
   } catch (err) {
@@ -52,32 +57,44 @@ async function postEmbed(texts: string[]): Promise<Float32Array[]> {
     throw new Error(`embed-server ${response.status}: ${body.slice(0, 200)}`);
   }
 
-  const data = (await response.json()) as { vectors?: unknown };
+  const data = (await response.json()) as { vectors?: unknown; model?: unknown };
   if (!Array.isArray(data.vectors) || data.vectors.length !== texts.length) {
     throw new Error(
       `embed-server returned ${Array.isArray(data.vectors) ? data.vectors.length : 0} vectors for ${texts.length} inputs.`,
     );
   }
-  return data.vectors.map((v, i) => {
+  const vectors = data.vectors.map((v, i) => {
     if (!Array.isArray(v) || !v.every((n) => typeof n === "number")) {
       throw new Error(`embed-server returned non-numeric vector at index ${i}.`);
     }
     return new Float32Array(v as number[]);
   });
+  // Servers before the model upgrade don't report one: that was MiniLM.
+  return { vectors, model: typeof data.model === "string" ? data.model : LEGACY_EMBEDDING_MODEL };
 }
 
-export async function embed(texts: string[]): Promise<Float32Array[]> {
-  if (texts.length === 0) return [];
+/** The model every report was embedded with before reports recorded it. */
+export const LEGACY_EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
+
+export async function embedWithModel(
+  texts: string[],
+  kind: EmbedKind = "passage",
+): Promise<{ vectors: Float32Array[]; model: string }> {
   const out: Float32Array[] = [];
+  let model = "";
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-    const batch = texts.slice(i, i + EMBED_BATCH);
-    const vectors = await postEmbed(batch);
-    out.push(...vectors);
+    const res = await postEmbed(texts.slice(i, i + EMBED_BATCH), kind);
+    out.push(...res.vectors);
+    model = res.model;
   }
-  return out;
+  return { vectors: out, model };
 }
 
-export async function embedOne(text: string): Promise<Float32Array> {
-  const [v] = await postEmbed([text]);
+export async function embed(texts: string[], kind: EmbedKind = "passage"): Promise<Float32Array[]> {
+  return (await embedWithModel(texts, kind)).vectors;
+}
+
+export async function embedOne(text: string, kind: EmbedKind = "query"): Promise<Float32Array> {
+  const [v] = await embed([text], kind);
   return v;
 }

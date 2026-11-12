@@ -54,6 +54,22 @@ const DEFAULT_BASE_URLS: Partial<Record<LlmProvider, string>> = {
 
 const REQUEST_TIMEOUT_MS = 240_000;
 const MAX_RETRIES = 4;
+// Gemini has no SDK retry. Overload (503) spikes last tens of seconds, so back
+// off exponentially (5s, 10s, 20s, 40s, 60s) instead of the old 2-6s.
+const GEMINI_MAX_ATTEMPTS = 6;
+
+export function geminiBackoffMs(attempt: number, retryAfterMs: number | null): number {
+  if (retryAfterMs !== null) return retryAfterMs;
+  return Math.min(60_000, 5_000 * 2 ** (attempt - 1));
+}
+
+// Test seam: replaces the provider call (after masking), so pipeline tests run
+// without a network or API key. Never set outside tests.
+type Dispatcher = (req: JsonRequest) => Promise<JsonResult<unknown>>;
+let testDispatcher: Dispatcher | null = null;
+export function __setLlmForTests(fn: Dispatcher | null): void {
+  testDispatcher = fn;
+}
 
 export function llmConfig(): {
   provider: LlmProvider;
@@ -114,7 +130,7 @@ function parseJson<T>(text: string, stopReason: string): T {
  * so every caller gets privacy protection without doing anything.
  */
 export async function generateJson<T>(req: JsonRequest): Promise<JsonResult<T>> {
-  const cfg = llmConfig();
+  const cfg = testDispatcher ? testConfig() : llmConfig();
   const masker = maskingEnabled() ? new PiiMasker() : null;
   let outbound = req;
   if (masker) {
@@ -124,8 +140,39 @@ export async function generateJson<T>(req: JsonRequest): Promise<JsonResult<T>> 
       console.log(`[llm] masked before sending: ${JSON.stringify(counts)}`);
     }
   }
-  const result = await dispatch<T>(cfg, outbound);
+  const result = testDispatcher
+    ? ((await testDispatcher(outbound)) as JsonResult<T>)
+    : await dispatchWithFallback<T>(cfg, outbound);
   return masker && masker.size > 0 ? { ...result, data: masker.unmaskDeep(result.data) } : result;
+}
+
+function testConfig(): ReturnType<typeof llmConfig> {
+  return { provider: "gemini", model: "test", apiKey: "test" };
+}
+
+function isOverloaded(err: unknown): boolean {
+  const status =
+    typeof err === "object" && err && "status" in err ? Number((err as { status?: number }).status) : 0;
+  const msg = err instanceof Error ? err.message : String(err);
+  return status === 503 || status === 529 || /overloaded|high demand|UNAVAILABLE/i.test(msg);
+}
+
+/**
+ * If the primary model stays overloaded after its retries, try LLM_FALLBACK_MODEL
+ * (same provider and key) once instead of failing the user's whole extraction.
+ */
+async function dispatchWithFallback<T>(
+  cfg: ReturnType<typeof llmConfig>,
+  req: JsonRequest,
+): Promise<JsonResult<T>> {
+  try {
+    return await dispatch<T>(cfg, req);
+  } catch (err) {
+    const fallback = process.env.LLM_FALLBACK_MODEL;
+    if (!fallback || fallback === cfg.model || !isOverloaded(err)) throw err;
+    console.warn(`[llm] ${cfg.model} overloaded; retrying once with ${fallback}`);
+    return dispatch<T>({ ...cfg, model: fallback }, req);
+  }
 }
 
 function dispatch<T>(cfg: ReturnType<typeof llmConfig>, req: JsonRequest): Promise<JsonResult<T>> {
@@ -230,9 +277,9 @@ async function generateGemini<T>(
           : 0;
       const msg = err instanceof Error ? err.message : String(err);
       const retryable = status === 429 || status === 503 || /quota|rate.?limit|429/i.test(msg);
-      if (!retryable || attempt >= MAX_RETRIES) throw err;
-      const waitMs = parseRetryAfterMs(err) ?? 2000 * attempt;
-      console.warn(`[llm] Gemini rate-limited — waiting ${waitMs}ms (attempt ${attempt}/${MAX_RETRIES})`);
+      if (!retryable || attempt >= GEMINI_MAX_ATTEMPTS) throw err;
+      const waitMs = geminiBackoffMs(attempt, parseRetryAfterMs(err));
+      console.warn(`[llm] Gemini busy (${status || "rate limit"}) — waiting ${waitMs}ms (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`);
       await new Promise((r) => setTimeout(r, waitMs));
     } finally {
       clearTimeout(timer);

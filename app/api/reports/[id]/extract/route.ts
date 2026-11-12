@@ -2,13 +2,13 @@ import type { NextRequest } from "next/server";
 import {
   getReport,
   resumeExtraction,
+  saveEmbeddings,
   setTargetFields,
   startExtraction,
 } from "@/lib/db/reports";
-import { countPasses } from "@/lib/extract/extractor";
-import { planFocusedExtraction } from "@/lib/extract/plan";
+import { planExtraction } from "@/lib/extract/engine";
 import { runExtraction } from "@/lib/extract/runner";
-import type { DataPointDefinition, ExtractionMode, PlanPass } from "@/lib/rag/types";
+import type { DataPointDefinition, ExtractionMode } from "@/lib/rag/types";
 import { requireReport } from "@/lib/auth/guard";
 import { audit } from "@/lib/audit";
 
@@ -109,24 +109,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return jsonError("Extraction is already running for this report.", 409);
   }
 
-  let mode: ExtractionMode = body.mode === "thorough" ? "thorough" : "focused";
-  let plan: PlanPass[] = [];
-  if (mode === "focused") {
-    const withChunks = await getReport(id, ["chunks"]);
-    try {
-      const focused = await planFocusedExtraction(
-        withChunks?.chunks ?? [],
-        withChunks?.embeddings ?? [],
-        targetFields,
-      );
-      if (focused) plan = focused;
-      else mode = "thorough"; // search couldn't narrow it down; read it all
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "search failed";
-      return jsonError(`Could not prepare focused extraction: ${message}`, 502);
-    }
+  const requested: ExtractionMode = body.mode === "thorough" ? "thorough" : "focused";
+  const doc = await getReport(id, ["pages", "chunks"]);
+  let planned;
+  try {
+    planned = await planExtraction(
+      {
+        pages: doc?.pages ?? [],
+        chunks: doc?.chunks ?? [],
+        embeddings: doc?.embeddings ?? [],
+        embeddingModel: doc?.embeddingModel,
+      },
+      targetFields,
+      requested,
+      (vectors, model) => saveEmbeddings(id, vectors, model),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "search failed";
+    return jsonError(`Could not prepare focused extraction: ${message}`, 502);
   }
-  const totalPasses = mode === "focused" ? plan.length : countPasses(report.pageCount);
+  const { mode, plan, passesTotal: totalPasses } = planned;
   if (totalPasses === 0) return jsonError("This document has no readable text.", 422);
 
   await setTargetFields(id, targetFields);

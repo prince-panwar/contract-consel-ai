@@ -78,11 +78,11 @@ flowchart LR
 ```
 
 1. **Intake.** An analyst uploads the client's agreement. It is encrypted before storage and visible only to that analyst until shared.
-2. **Processing.** Our document service extracts the text, splits it into section-aware passages and computes embeddings locally — no third party sees the document.
+2. **Processing.** Our document service extracts the text (with OCR for scanned pages), splits it into section-aware passages and computes embeddings locally — no third party is involved in this step.
 3. **Scoping.** The analyst lists the terms to audit; live keyword hit counts show how well each term is located.
-4. **Planning.** For each term, passages are ranked by combining keyword relevance (BM25) with semantic similarity, then packed into as few AI calls as a token budget allows.
+4. **Planning.** A contract that fits the model's budget (about 120 pages) is read in full in one call, so definitions, exceptions and amendments are interpreted together. Longer contracts are read in page windows, or — in Focused mode — as passages ranked by keyword relevance (BM25) and semantic similarity; each partial read carries the contract's defined terms.
 5. **Extraction.** A resilient background engine runs the calls. Every call passes through a single privacy gateway that masks personal identifiers, requests structured output, and restores the originals on our side.
-6. **Verification and delivery.** Quotes are matched against the source, the analyst reviews and edits the findings, and the audit report is exported for the client.
+6. **Verification and delivery.** Where parts of a long contract gave different answers for a term, a reconciliation step picks the governing provision. Quotes are matched against the source, terms that were not located are listed, the analyst reviews and edits the findings, and the audit report is exported for the client.
 
 ---
 
@@ -92,7 +92,7 @@ flowchart LR
 
 | Destination | What is sent | What is never sent |
 |---|---|---|
-| **AI model provider** (the only external processing) | Passages relevant to the requested terms, with personal identifiers replaced by placeholders; the term definitions | Whole documents, filenames, unmasked identifiers, staff or client account data, credentials |
+| **AI model provider** (the only external processing) | The contract text needed for the requested terms — the full text when it fits one call, otherwise page windows or selected passages — with personal identifiers replaced by placeholders; the term definitions | Original files, filenames, unmasked identifiers, staff or client account data, credentials |
 | **Database** | Encrypted documents, text, findings and filenames; staff accounts; audit log; embedding vectors | Plaintext contract content, plaintext passwords, encryption keys |
 | **Anything else** | — | Nothing: parsing, search and embeddings run on our servers, and framework telemetry is disabled |
 
@@ -138,7 +138,7 @@ Please report security concerns privately to the ContractConsel team rather than
 |---|---|
 | Application | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | Data | MongoDB with GridFS for documents; application-level AES-256-GCM encryption |
-| Document service | Fastify, pdf-parse, all-MiniLM-L6-v2 embeddings on CPU |
+| Document service | Fastify, pdf-parse with layout-aware text assembly, Tesseract OCR, bge-small-en-v1.5 embeddings on CPU |
 | Search | BM25 keyword search with phrase and prefix matching, reciprocal-rank fusion with embeddings |
 | AI | Provider-agnostic gateway (Anthropic, Google, OpenAI-compatible, local models) with structured outputs |
 | Reports | pdfkit, docx, exceljs |
@@ -148,7 +148,8 @@ Please report security concerns privately to the ContractConsel team rather than
 
 ## Engineering quality
 
-- **Privacy test suite** — 95 automated tests for identifier masking, including 2,000-document randomised round-trips and an end-to-end test proving no identifiers reach the AI provider (`npm test`).
+- **Automated tests** — 150+ tests (`npm test`): identifier masking (including 2,000-document randomised round-trips and an end-to-end test proving no identifiers reach the AI provider), extraction planning, definitions, conflict reconciliation, PDF text layout and embedding compatibility.
+- **Accuracy benchmark** — extraction is scored against CUAD, a public set of contracts annotated by lawyers for 41 review categories (`bin/eval-cuad.ts`), so every change to models, prompts or search is measured before release.
 - **Staging validation** — authentication, authorization and data-separation flows are verified end to end, through the API and in a real browser, on an isolated environment before release.
 - **Strict typing and linting** across the codebase.
 - **Resilience** — extraction and document processing resume automatically after a restart.
@@ -160,7 +161,6 @@ Please report security concerns privately to the ContractConsel team rather than
 - **Review playbooks** — saved term sets per contract type (MSA, NDA, SaaS, lease, employment).
 - **Risk scoring against client standards** — each finding rated against the client's position with a written rationale.
 - **Missing-clause detection** — flag expected protections that are absent.
-- **OCR** for scanned agreements.
 - **Portfolio view and key-date tracking** — renewal and notice deadlines across a client's contract base.
 - **Version comparison** — clause-level differences between drafts.
 
@@ -174,7 +174,16 @@ For the ContractConsel engineering team only.
 npm install
 cp .env.example .env.local        # see comments in .env.example
 npm run dev                        # application on http://localhost:3000
-npm test                           # privacy test suite
+npm test                           # automated tests
+```
+
+Extraction settings (environment): `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`; `LLM_FALLBACK_MODEL` (same provider, used once when the primary model is overloaded); `EXTRACTION_FULL_CONTEXT_CHARS` (read in one call up to this many characters, default 320000) and `EXTRACTION_WINDOW_CHARS` (window size above that, default 160000).
+
+Accuracy benchmark (needs a running document service and an LLM key; contracts are public CUAD data):
+
+```bash
+python3 bin/eval-cuad-prepare.py <dir with CUAD_v1/> > cuad-eval.json
+npx tsx --env-file=<env> bin/eval-cuad.ts --data cuad-eval.json --set dev --out results.json
 ```
 
 Production runs with `docker compose up -d --build` (application, document service and TLS gateway). Configuration, secrets handling and operational procedures are documented internally. The document service has its own notes in [`services/embed-server/README.md`](services/embed-server/README.md).

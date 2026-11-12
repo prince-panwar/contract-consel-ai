@@ -87,6 +87,14 @@ export function DataPointRow({ dp, selected, onSelect, onEdit, onDelete, readOnl
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {dp.reconciled && (
+            <span
+              className="text-[0.6rem] px-1.5 py-0.5 rounded-full bg-bg-tertiary text-text-muted uppercase tracking-wide"
+              title="The contract was read in parts that gave different answers; this is the governing one."
+            >
+              Resolved
+            </span>
+          )}
           {sourceBadge && (
             <span className="text-[0.6rem] px-1.5 py-0.5 rounded-full bg-accent/15 text-accent uppercase tracking-wide">
               {sourceBadge}

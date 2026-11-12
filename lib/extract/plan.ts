@@ -1,6 +1,6 @@
 import { ragConfig } from "../constants";
-import { embed } from "../rag/embedder";
-import type { Chunk, DataPointDefinition, PlanPass } from "../rag/types";
+import type { DataPointDefinition, PlanPass } from "../rag/types";
+import { queryAndChunkVectors, type EmbeddedDoc, type SaveEmbeddings } from "../rag/vectors";
 import { dot } from "../rag/retriever";
 import { hybridRank } from "../search/keywords";
 
@@ -16,14 +16,15 @@ export function keywordsFor(field: DataPointDefinition): string[] {
  * would cost about as much as reading the whole document.
  */
 export async function planFocusedExtraction(
-  chunks: Chunk[],
-  embeddings: Float32Array[],
+  doc: EmbeddedDoc,
   fields: DataPointDefinition[],
+  saveEmbeddings?: SaveEmbeddings,
 ): Promise<PlanPass[] | null> {
+  const { chunks } = doc;
   const queries = fields.map((f) =>
     [f.name, f.description, keywordsFor(f).join(", ")].filter(Boolean).join(". "),
   );
-  const queryVectors = await embed(queries);
+  const { queryVectors, chunkVectors: embeddings } = await queryAndChunkVectors(doc, queries, saveEmbeddings);
   const charsById = new Map(chunks.map((c) => [c.id, c.text.length]));
 
   const perField = fields.map((field, i) => {

@@ -561,6 +561,8 @@ export function Workbench({ reportId }: Props) {
             onAdd={handleAdd}
             onJump={handleJump}
             extractionRunning={extractionRunning}
+            targetFields={report.targetFields}
+            readInFull={report.extractionMode === "thorough"}
           />
         </section>
         <section className="min-h-0 overflow-hidden">

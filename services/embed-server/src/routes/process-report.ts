@@ -64,7 +64,7 @@ async function processInBackground(reportId: string): Promise<void> {
     const chunks = chunkContract(pages);
     if (chunks.length === 0) {
       throw new Error(
-        "No readable text found. Scanned/image-only PDFs need OCR and aren't supported yet.",
+        "No readable text found, even with OCR. The PDF may be empty, image-only at very low quality, or protected.",
       );
     }
     console.log(`[process-report] ${reportId} ${chunks.length} chunks`);
@@ -94,6 +94,7 @@ async function processInBackground(reportId: string): Promise<void> {
             heading: c.heading === null ? null : encryptText(c.heading),
           })),
           embeddingsB64,
+          embeddingModel: config.modelId,
           pages: pages.map((p) => ({ ...p, text: encryptText(p.text) })),
           pageCount: pages.length,
           processingStatus: "ready",

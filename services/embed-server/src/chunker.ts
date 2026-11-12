@@ -16,8 +16,10 @@ export interface Chunk {
   charEnd: number;
 }
 
-const CHUNK_TARGET_CHARS = 1000;
-const CHUNK_OVERLAP_CHARS = 160;
+// bge-small reads 512 tokens (~2000 chars); 1600 keeps a clause together
+// with headroom for long legal words.
+const CHUNK_TARGET_CHARS = 1600;
+const CHUNK_OVERLAP_CHARS = 200;
 
 const HEADING_RE =
   /^\s*(?:(?:ARTICLE|SECTION|CLAUSE|EXHIBIT|SCHEDULE|APPENDIX|PART)\s+[IVXLC0-9]+(?:[.:\s-][^\n]{0,120})?|\d+(?:\.\d+)*\s+[A-Z][^\n]{0,120})\s*$/m;
